@@ -23,6 +23,9 @@ public sealed class MainWindow(Configuration config, Favourites favourites, Acti
     private const uint Sterngrau = 0x88666666u;
     private const uint Sternrand = 0xCC222222u;
 
+    /// <summary>Kantenlaenge der Klickflaeche des Sterns.</summary>
+    private const float Sternkante = 16f;
+
     public bool Visible;
 
     private string suche = string.Empty;
@@ -162,7 +165,17 @@ public sealed class MainWindow(Configuration config, Favourites favourites, Acti
 
         var symbol = Plugin.Textures.GetFromGameIcon(new(m.Emote.IconId)).GetWrapOrDefault();
 
+        // Das Stern-Rechteck **vor** dem Knopf berechnen: Danach laesst es sich nicht
+        // mehr ohne Cursor-Bewegung ermitteln, und jede Bewegung verschoebe das
+        // Layout - der Stern wuerde zum letzten Element, an dem SameLine ausrichtet.
         var ecke = ImGui.GetCursorScreenPos();
+        var kachelbreite = config.IconSize + ImGui.GetStyle().FramePadding.X * 2f;
+
+        var sternMitte = new Vector2(ecke.X + kachelbreite - Sternkante / 2f - 3f,
+                                     ecke.Y + Sternkante / 2f + 3f);
+
+        var halb = new Vector2(Sternkante / 2f, Sternkante / 2f);
+        var ueberStern = ImGui.IsMouseHoveringRect(sternMitte - halb, sternMitte + halb);
 
         if (!frei)
             ImGui.BeginDisabled();
@@ -181,12 +194,19 @@ public sealed class MainWindow(Configuration config, Favourites favourites, Acti
         if (!frei)
             ImGui.EndDisabled();
 
-        if (geklickt && frei)
+        // Ein Klick auf den Stern soll das Emote nicht abspielen - der Knopf liegt
+        // darunter und faengt ihn zuerst ab.
+        if (geklickt && frei && !ueberStern)
             EmoteRunner.Play(id);
 
         var ueberKachel = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled);
-        var kachelEnde = ImGui.GetCursorPos();
-        var aussen = ImGui.GetItemRectMax();
+
+        if (ueberStern && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            favourites.Toggle(id);
+            save();
+            angeheftet = !angeheftet;
+        }
 
         if (ueberKachel)
         {
@@ -205,11 +225,7 @@ public sealed class MainWindow(Configuration config, Favourites favourites, Acti
             }
         }
 
-        DrawStern(id, kuerzel, ecke, aussen, angeheftet, ueberKachel);
-
-        // Den Layout-Fluss wiederherstellen: Der Stern hat den Cursor versetzt, sonst
-        // sitzt die naechste Kachel an der falschen Stelle.
-        ImGui.SetCursorPos(kachelEnde);
+        DrawStern(sternMitte, angeheftet, ueberKachel || ueberStern, ueberStern);
     }
 
     /// <summary>
@@ -218,40 +234,28 @@ public sealed class MainWindow(Configuration config, Favourites favourites, Acti
     /// Ein sichtbares Zeichen statt eines versteckten Rechtsklicks: Man soll auf einen
     /// Blick sehen, was angeheftet ist, und es dort umschalten, wo man es sieht.
     ///
-    /// Gezeichnet wird er von Hand statt als Schriftzeichen - ein „★" fehlt in der
-    /// Standardschrift und erschiene als Kaestchen.
+    /// **Nur gezeichnet, kein eigenes Element.** Ein unsichtbarer Knopf hier wuerde
+    /// zum letzten Element im Fluss, und `SameLine` richtete die naechste Kachel
+    /// daran aus - das Gitter fiele treppenartig auseinander. Die Klickpruefung
+    /// laeuft deshalb ueber das Rechteck, nicht ueber ein Widget.
+    ///
+    /// Gezeichnet von Hand statt als Schriftzeichen: Ein „★" fehlt in der
+    /// Standardschrift und erschiene als leeres Kaestchen.
     /// </summary>
-    private void DrawStern(uint id, string kuerzel, Vector2 ecke, Vector2 aussen,
-                           bool angeheftet, bool ueberKachel)
+    private static void DrawStern(Vector2 mitte, bool angeheftet, bool sichtbar, bool ueberStern)
     {
-        const float kante = 16f;
-
-        var mitte = new Vector2(aussen.X - kante / 2f - 3f, ecke.Y + kante / 2f + 3f);
-
-        // Unsichtbare Klickflaeche genau ueber dem gezeichneten Stern.
-        ImGui.SetCursorScreenPos(new(mitte.X - kante / 2f, mitte.Y - kante / 2f));
-        ImGui.PushID($"star{kuerzel}{id}");
-
-        var geklickt = ImGui.InvisibleButton("##stern", new(kante, kante));
-        var ueberStern = ImGui.IsItemHovered();
-
-        ImGui.PopID();
-
-        if (geklickt)
-        {
-            favourites.Toggle(id);
-            save();
-        }
-
         // Unangeheftete Sterne bleiben aus, bis die Maus die Kachel beruehrt - sonst
         // ist das Gitter voller Zeichen, die nichts aussagen.
-        if (!angeheftet && !ueberKachel && !ueberStern)
+        if (!angeheftet && !sichtbar)
             return;
 
         var farbe = angeheftet ? Sternfarbe : (ueberStern ? Sternhover : Sterngrau);
+        var radius = Sternkante / 2.6f;
 
-        ImGui.GetWindowDrawList().AddCircleFilled(mitte, kante / 2.6f, farbe);
-        ImGui.GetWindowDrawList().AddCircle(mitte, kante / 2.6f, Sternrand, 0, 1.5f);
+        var liste = ImGui.GetWindowDrawList();
+
+        liste.AddCircleFilled(mitte, radius, farbe);
+        liste.AddCircle(mitte, radius, Sternrand, 0, 1.5f);
     }
 
     // ------------------------------------------------------------------ Posen
