@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="EnMotion.Core/EnMotion.Core.csproj" />
+  <Project Path="EnMotion/EnMotion.csproj" />
+  <Project Path="EnMotion.Core.Tests/EnMotion.Core.Tests.csproj" />
+</Solution>
