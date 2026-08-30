@@ -1,4 +1,10 @@
 bin/
 obj/
+*.user
+.vs/
+.idea/
+*.zip
+
+# Arbeitsmaterial, bleibt lokal
 CLAUDE.md
 docs/

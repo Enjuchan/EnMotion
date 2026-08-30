@@ -4,8 +4,18 @@
   "Punchline": "Shows which emotes your mods change, and plays them.",
   "Description": "Lists emotes, dances and idle poses altered by Penumbra mods, plays them with one click and lets you pin favourites. Idle poses can be picked directly instead of cycling through them. Requires Penumbra.",
   "ApplicableVersion": "any",
-  "Tags": [ "emote", "penumbra", "mods", "pose", "dance" ],
-  "CategoryTags": [ "other" ],
+  "Tags": [
+    "emote",
+    "penumbra",
+    "mods",
+    "pose",
+    "dance"
+  ],
+  "CategoryTags": [
+    "other"
+  ],
   "LoadRequiredState": 0,
-  "LoadSync": false
+  "LoadSync": false,
+  "IconUrl": "https://raw.githubusercontent.com/Enjuchan/EnMotion/main/EnMotion/images/icon.png",
+  "RepoUrl": "https://github.com/Enjuchan/EnMotion"
 }
