@@ -14,22 +14,30 @@ public sealed class ButtonWindow(Configuration config, Action onClick, Action sa
 {
     private const float Kante = 48f;
 
+    /// <summary>
+    /// Ob die laufende Mausbewegung ein Ziehen ist. Ohne diese Unterscheidung oeffnet
+    /// jedes Verschieben am Ende auch das Fenster - der Knopf meldet den Klick beim
+    /// Loslassen, und da steht die Maus meist noch ueber ihm.
+    /// </summary>
+    private bool zieht;
+
     public void Draw()
     {
         if (!config.ButtonVisible)
             return;
 
+        // NoMove immer: Das Fenster ist genau so gross wie der Knopf darin, es gibt
+        // also keinen freien Hintergrund zum Ziehen. Verschoben wird stattdessen am
+        // Knopf selbst, siehe unten.
         var flags = ImGuiWindowFlags.NoDecoration
                   | ImGuiWindowFlags.NoBackground
                   | ImGuiWindowFlags.AlwaysAutoResize
                   | ImGuiWindowFlags.NoScrollbar
                   | ImGuiWindowFlags.NoSavedSettings
-                  | ImGuiWindowFlags.NoFocusOnAppearing;
+                  | ImGuiWindowFlags.NoFocusOnAppearing
+                  | ImGuiWindowFlags.NoMove;
 
-        if (config.ButtonLocked)
-            flags |= ImGuiWindowFlags.NoMove;
-
-        ImGui.SetNextWindowPos(new(config.ButtonX, config.ButtonY), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowPos(new(config.ButtonX, config.ButtonY));
 
         if (!ImGui.Begin("##enmotionbutton", flags))
         {
@@ -48,25 +56,46 @@ public sealed class ButtonWindow(Configuration config, Action onClick, Action sa
 
         ImGui.PopID();
 
+        // Ziehen am Knopf selbst. Der Schwellwert verhindert, dass ein Klick mit
+        // zittriger Hand schon als Verschieben gilt.
+        if (!config.ButtonLocked &&
+            ImGui.IsItemActive() &&
+            ImGui.IsMouseDragging(ImGuiMouseButton.Left, 4f))
+        {
+            var schritt = ImGui.GetIO().MouseDelta;
+
+            config.ButtonX += schritt.X;
+            config.ButtonY += schritt.Y;
+
+            zieht = true;
+        }
+
+        // Ein Klick zaehlt nur, wenn nicht gezogen wurde: Der Knopf meldet ihn beim
+        // Loslassen, und da steht die Maus nach dem Verschieben meist noch ueber ihm.
         if (geklickt)
-            onClick();
+        {
+            if (!zieht)
+                onClick();
+
+            if (zieht)
+                save();
+
+            zieht = false;
+        }
+
+        // Losgelassen, ohne dass der Knopf ausloest - etwa weil die Maus beim
+        // Verschieben davongelaufen ist.
+        if (zieht && !ImGui.IsMouseDown(ImGuiMouseButton.Left))
+        {
+            zieht = false;
+            save();
+        }
 
         if (ImGui.IsItemHovered())
         {
             ImGui.SetTooltip(config.ButtonLocked
                 ? "EnMotion"
-                : "EnMotion  —  drag to move");
-        }
-
-        // Verschobene Position merken, aber nur bei echter Aenderung: Sonst schreibt
-        // jeder Frame die Konfiguration auf die Platte.
-        var pos = ImGui.GetWindowPos();
-
-        if (Math.Abs(pos.X - config.ButtonX) > 0.5f || Math.Abs(pos.Y - config.ButtonY) > 0.5f)
-        {
-            config.ButtonX = pos.X;
-            config.ButtonY = pos.Y;
-            save();
+                : "EnMotion\nDrag to move, unlock in the settings");
         }
 
         ImGui.End();

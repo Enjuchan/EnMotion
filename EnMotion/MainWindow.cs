@@ -17,6 +17,12 @@ public sealed class MainWindow(Configuration config, Favourites favourites, Acti
     private const uint Warnfarbe = 0xFF3333FFu;
     private const uint Aktivfarbe = 0xFFCC7733u;
 
+    // ImGui-Farben liegen als ABGR im Speicher, nicht als ARGB.
+    private const uint Sternfarbe = 0xFF33CCFFu;   // Gold
+    private const uint Sternhover = 0xFF88DDFFu;
+    private const uint Sterngrau = 0x88666666u;
+    private const uint Sternrand = 0xCC222222u;
+
     public bool Visible;
 
     private string suche = string.Empty;
@@ -156,6 +162,8 @@ public sealed class MainWindow(Configuration config, Favourites favourites, Acti
 
         var symbol = Plugin.Textures.GetFromGameIcon(new(m.Emote.IconId)).GetWrapOrDefault();
 
+        var ecke = ImGui.GetCursorScreenPos();
+
         if (!frei)
             ImGui.BeginDisabled();
 
@@ -176,23 +184,74 @@ public sealed class MainWindow(Configuration config, Favourites favourites, Acti
         if (geklickt && frei)
             EmoteRunner.Play(id);
 
-        if (!ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+        var ueberKachel = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled);
+        var kachelEnde = ImGui.GetCursorPos();
+        var aussen = ImGui.GetItemRectMax();
+
+        if (ueberKachel)
+        {
+            ImGui.SetTooltip(
+                $"{m.Emote.Name}   {m.Emote.TextCommand}\n" +
+                $"Mods: {string.Join(", ", m.Mods)}\n" +
+                (frei
+                    ? angeheftet ? "Click the star to unpin" : "Click the star to pin"
+                    : "Not unlocked"));
+
+            // Rechtsklick bleibt als Abkuerzung fuer alle, die ihn kennen.
+            if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+            {
+                favourites.Toggle(id);
+                save();
+            }
+        }
+
+        DrawStern(id, kuerzel, ecke, aussen, angeheftet, ueberKachel);
+
+        // Den Layout-Fluss wiederherstellen: Der Stern hat den Cursor versetzt, sonst
+        // sitzt die naechste Kachel an der falschen Stelle.
+        ImGui.SetCursorPos(kachelEnde);
+    }
+
+    /// <summary>
+    /// Der Stern in der oberen rechten Ecke einer Kachel.
+    ///
+    /// Ein sichtbares Zeichen statt eines versteckten Rechtsklicks: Man soll auf einen
+    /// Blick sehen, was angeheftet ist, und es dort umschalten, wo man es sieht.
+    ///
+    /// Gezeichnet wird er von Hand statt als Schriftzeichen - ein „★" fehlt in der
+    /// Standardschrift und erschiene als Kaestchen.
+    /// </summary>
+    private void DrawStern(uint id, string kuerzel, Vector2 ecke, Vector2 aussen,
+                           bool angeheftet, bool ueberKachel)
+    {
+        const float kante = 16f;
+
+        var mitte = new Vector2(aussen.X - kante / 2f - 3f, ecke.Y + kante / 2f + 3f);
+
+        // Unsichtbare Klickflaeche genau ueber dem gezeichneten Stern.
+        ImGui.SetCursorScreenPos(new(mitte.X - kante / 2f, mitte.Y - kante / 2f));
+        ImGui.PushID($"star{kuerzel}{id}");
+
+        var geklickt = ImGui.InvisibleButton("##stern", new(kante, kante));
+        var ueberStern = ImGui.IsItemHovered();
+
+        ImGui.PopID();
+
+        if (geklickt)
+        {
+            favourites.Toggle(id);
+            save();
+        }
+
+        // Unangeheftete Sterne bleiben aus, bis die Maus die Kachel beruehrt - sonst
+        // ist das Gitter voller Zeichen, die nichts aussagen.
+        if (!angeheftet && !ueberKachel && !ueberStern)
             return;
 
-        ImGui.SetTooltip(
-            $"{m.Emote.Name}   {m.Emote.TextCommand}\n" +
-            $"Mods: {string.Join(", ", m.Mods)}\n" +
-            (frei
-                ? angeheftet ? "Right-click to unpin" : "Right-click to pin"
-                : "Not unlocked"));
+        var farbe = angeheftet ? Sternfarbe : (ueberStern ? Sternhover : Sterngrau);
 
-        // Rechtsklick heftet an. Ein eigener Stern-Knopf waere bei dieser Kachelgroesse
-        // nicht mehr zu treffen.
-        if (!ImGui.IsMouseClicked(ImGuiMouseButton.Right))
-            return;
-
-        favourites.Toggle(id);
-        save();
+        ImGui.GetWindowDrawList().AddCircleFilled(mitte, kante / 2.6f, farbe);
+        ImGui.GetWindowDrawList().AddCircle(mitte, kante / 2.6f, Sternrand, 0, 1.5f);
     }
 
     // ------------------------------------------------------------------ Posen
