@@ -1,5 +1,7 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
+using EnMotion.Ui;
 
 namespace EnMotion;
 
@@ -39,22 +41,50 @@ public sealed class ButtonWindow(Configuration config, Action onClick, Action sa
 
         ImGui.SetNextWindowPos(new(config.ButtonX, config.ButtonY));
 
-        if (!ImGui.Begin("##enmotionbutton", flags))
+        // Ohne Innenabstand ist das Fenster exakt so gross wie der Knopf.
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        var offen = ImGui.Begin("##enmotionbutton", flags);
+        ImGui.PopStyleVar();
+
+        if (!offen)
         {
             ImGui.End();
             return;
         }
 
-        var symbol = Plugin.Textures.GetFromGameIcon(new(config.ButtonIconId)).GetWrapOrDefault();
+        var kante = Widgets.S(Kante);
+        var pos = ImGui.GetCursorScreenPos();
 
-        // ImageButton nimmt in diesen Bindings keine String-Kennung entgegen.
         ImGui.PushID("enmotion");
-
-        var geklickt = symbol is null
-            ? ImGui.Button("EnMotion", new(Kante, Kante))
-            : ImGui.ImageButton(symbol.Handle, new(Kante, Kante));
-
+        var geklickt = ImGui.InvisibleButton("##knopf", new Vector2(kante, kante));
         ImGui.PopID();
+
+        var hover = ImGui.IsItemHovered();
+        var draw = ImGui.GetWindowDrawList();
+        var max = pos + new Vector2(kante, kante);
+        var rand = Theme.U32(hover ? Theme.Accent : Theme.Border);
+
+        if (config.ButtonStyle == ButtonStyle.Hotbar)
+        {
+            draw.AddRectFilled(pos, max, Theme.U32(Theme.Hover), 6f);
+            if (config.ButtonIconId != 0)
+            {
+                var wrap = Plugin.Textures.GetFromGameIcon(new(config.ButtonIconId)).GetWrapOrEmpty();
+                draw.AddImageRounded(wrap.Handle, pos + Vector2.One, max - Vector2.One, Vector2.Zero, Vector2.One, 0xFFFFFFFF, 5f);
+            }
+            draw.AddRect(pos, max, rand, 6f, ImDrawFlags.None, 1f);
+        }
+        else
+        {
+            draw.AddRectFilled(pos, max, Theme.U32(Theme.Card), 8f);
+            draw.AddRect(pos, max, rand, 8f, ImDrawFlags.None, 1f);
+
+            var figur = FontAwesomeIcon.Running.ToIconString();
+            ImGui.PushFont(UiBuilder.IconFont);
+            var groesse = ImGui.CalcTextSize(figur);
+            draw.AddText(pos + (new Vector2(kante, kante) - groesse) / 2, Theme.U32(Theme.AccentLight), figur);
+            ImGui.PopFont();
+        }
 
         // Ziehen am Knopf selbst. Der Schwellwert verhindert, dass ein Klick mit
         // zittriger Hand schon als Verschieben gilt.
@@ -91,7 +121,7 @@ public sealed class ButtonWindow(Configuration config, Action onClick, Action sa
             save();
         }
 
-        if (ImGui.IsItemHovered())
+        if (hover)
         {
             ImGui.SetTooltip(config.ButtonLocked
                 ? "EnMotion"

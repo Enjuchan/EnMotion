@@ -44,9 +44,32 @@ public static class EmoteCatalog
             if (keys.Count == 0)
                 continue;
 
-            result.Add(new EmoteEntry(emote.RowId, name, emote.Icon, command, keys));
+            result.Add(new EmoteEntry(emote.RowId, name, emote.Icon, command, keys, emote.EmoteCategory.RowId));
         }
 
+        LogCategories(data, result);
+
         return result;
+    }
+
+    /// <summary>
+    /// Haelt einmal im Log fest, welche Kategorie-Zeilen mit welchem Namen vorkommen, damit sich
+    /// die Zeile der Ausdruecke im Spiel bestaetigen laesst.
+    /// </summary>
+    private static void LogCategories(IDataManager data, IReadOnlyList<EmoteEntry> entries)
+    {
+        var names = data.GetExcelSheet<EmoteCategory>();
+
+        var rows = entries
+            .GroupBy(e => e.CategoryRow)
+            .OrderBy(g => g.Key)
+            .Select(g =>
+            {
+                var name = names is not null && names.TryGetRow(g.Key, out var row) ? row.Name.ExtractText() : "?";
+                return $"row {g.Key} \"{name}\" x{g.Count()}";
+            });
+
+        Plugin.Log.Information(
+            $"Emote categories: {string.Join(", ", rows)}; expressions are row {EmoteEntry.ExpressionCategoryRow}.");
     }
 }

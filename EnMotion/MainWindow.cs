@@ -1,50 +1,88 @@
+using System.Diagnostics;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using EnMotion.Core;
-using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using EnMotion.Ui;
 
 namespace EnMotion;
 
 /// <summary>
-/// Drei Reiter: gemoddete Emotes, gemoddete Taenze, alle Posen.
+/// Fuenf Reiter: gemoddete Emotes, Taenze und Ausdruecke, alle Posen, Einstellungen.
 ///
 /// Die Bindings heissen `Dalamud.Bindings.ImGui`, nicht ImGuiNET - Beispiele aus dem
 /// Netz passen meist nicht.
 /// </summary>
-public sealed class MainWindow(Configuration config, Favourites favourites, Action save)
+public sealed partial class MainWindow(Configuration config, Favourites favourites, PoseFavourites poseFavourites, Action save, string version)
 {
-    private const uint Graufarbe = 0xFF999999u;
-    private const uint Warnfarbe = 0xFF3333FFu;
-    private const uint Aktivfarbe = 0xFFCC7733u;
-
-    // ImGui-Farben liegen als ABGR im Speicher, nicht als ARGB.
-    private const uint Sternfarbe = 0xFF33CCFFu;   // Gold
-    private const uint Sternhover = 0xFF88DDFFu;
-    private const uint Sterngrau = 0x88666666u;
-    private const uint Sternrand = 0xCC222222u;
-
-    /// <summary>Kantenlaenge der Klickflaeche des Sterns.</summary>
-    private const float Sternkante = 16f;
-
     public bool Visible;
 
     private string suche = string.Empty;
 
+    private static readonly TimeSpan Entprellung = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan Rueckfall = TimeSpan.FromSeconds(30);
+
     /// <summary>
-    /// Penumbra jeden Frame zu befragen waere verschwenderisch - die Liste aendert
-    /// sich nur, wenn jemand Mods umschaltet.
+    /// Die Abfrage kostet Millisekunden im Zeichenpfad. Deshalb laeuft sie nur nach
+    /// Penumbra-Ereignissen, beim ersten Zeichnen und als Rueckfall alle 30 Sekunden.
     /// </summary>
     private IReadOnlyList<ModdedEmote> gemoddet = [];
     private DateTime naechsteAbfrage = DateTime.MinValue;
+    private bool penumbraWarDa;
+
+    private const int TabAnzahl = 5;
+    private const int TabPosen = 3;
+
+    // Settings gibt es nur in der Vollansicht.
+    private int tab = Math.Clamp(config.LastTab, 0, config.View == ViewMode.Compact ? TabPosen : TabAnzahl - 1);
+
+    /// <summary>Setzt die gemerkte Groesse der Ansicht einmalig, im Frame nach dem Umschalten.</summary>
+    private bool groesseSetzen;
+
+    private bool penumbraDa;
+    private DateTime penumbraGeprueft = DateTime.MinValue;
+
+    private readonly FrameTiming zeichenzeit = new(Plugin.Log, "Window draw time", TimeSpan.FromSeconds(5));
+    private readonly FrameTiming abfragezeit = new(Plugin.Log, "Modded emote lookup", TimeSpan.FromSeconds(30));
 
     public void Draw()
     {
         if (!Visible)
             return;
 
-        ImGui.SetNextWindowSize(new(660, 540), ImGuiCond.FirstUseEver);
+        var start = Stopwatch.GetTimestamp();
 
-        if (!ImGui.Begin("EnMotion", ref Visible))
+        using var theme = Theme.Push();
+
+        // Nach dem Theme gesetzt, damit nur Hintergrund und Titelleiste die Deckkraft bekommen.
+        var deckkraft = Math.Clamp(config.BackgroundOpacity, 0.2f, 1f);
+        ImGui.PushStyleColor(ImGuiCol.WindowBg, Theme.Background with { W = deckkraft });
+        ImGui.PushStyleColor(ImGuiCol.TitleBg, Theme.Header with { W = deckkraft });
+        ImGui.PushStyleColor(ImGuiCol.TitleBgActive, Theme.Header with { W = deckkraft });
+        ImGui.PushStyleColor(ImGuiCol.TitleBgCollapsed, Theme.Header with { W = deckkraft });
+        using var deckend = new Theme.Scope(4, 0);
+
+        var kompakt = config.View == ViewMode.Compact;
+
+        if (groesseSetzen)
+        {
+            groesseSetzen = false;
+            ImGui.SetNextWindowSize(GespeicherteGroesse(kompakt), ImGuiCond.Always);
+        }
+        else
+            ImGui.SetNextWindowSize(StandardGroesse(kompakt), ImGuiCond.FirstUseEver);
+
+        ImGui.SetNextWindowSizeConstraints(kompakt ? new Vector2(Widgets.S(240), Widgets.S(140)) : new Vector2(520, 400),
+            new Vector2(float.MaxValue, float.MaxValue));
+
+        var flags = config.WindowLocked ? ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize : ImGuiWindowFlags.None;
+
+        // Ohne Titelleiste zieht ImGui das Fenster am freien Hintergrund.
+        if (kompakt)
+            flags |= ImGuiWindowFlags.NoTitleBar;
+
+        // Der Titel bleibt "EnMotion", damit gespeicherte Fensterlage und -groesse erhalten bleiben.
+        if (!ImGui.Begin("EnMotion", ref Visible, flags))
         {
             ImGui.End();
             return;
@@ -52,308 +90,211 @@ public sealed class MainWindow(Configuration config, Favourites favourites, Acti
 
         Aktualisieren();
 
-        if (ImGui.BeginTabBar("reiter"))
-        {
-            if (ImGui.BeginTabItem("Emotes"))
-            {
-                DrawGitter(taenze: false);
-                ImGui.EndTabItem();
-            }
+        Decor.Background(deckkraft);
 
-            if (ImGui.BeginTabItem("Dances"))
-            {
-                DrawGitter(taenze: true);
-                ImGui.EndTabItem();
-            }
-
-            if (ImGui.BeginTabItem("Poses"))
-            {
-                DrawPosen();
-                ImGui.EndTabItem();
-            }
-
-            if (ImGui.BeginTabItem("Settings"))
-            {
-                DrawEinstellungen();
-                ImGui.EndTabItem();
-            }
-
-            ImGui.EndTabBar();
-        }
+        if (kompakt)
+            DrawKompakt();
+        else
+            DrawVoll(deckkraft);
 
         ImGui.End();
+
+        zeichenzeit.Add(Stopwatch.GetElapsedTime(start));
     }
 
-    /// <summary>Alle zwei Sekunden neu bei Penumbra nachfragen.</summary>
-    private void Aktualisieren()
+    private static Vector2 StandardGroesse(bool kompakt) => kompakt ? new Vector2(Widgets.S(380), Widgets.S(280)) : new(720, 560);
+
+    private Vector2 GespeicherteGroesse(bool kompakt)
     {
-        if (DateTime.UtcNow < naechsteAbfrage)
-            return;
-
-        gemoddet = ModdedEmotes.Find(Plugin.Data);
-        naechsteAbfrage = DateTime.UtcNow.AddSeconds(2);
-    }
-
-    // ----------------------------------------------------------- Emotes/Taenze
-
-    private void DrawGitter(bool taenze)
-    {
-        ImGui.SetNextItemWidth(240);
-        ImGui.InputTextWithHint("##suche", "search...", ref suche, 64);
-
-        if (!PenumbraBridge.IsAvailable)
-        {
-            ImGui.Spacing();
-            ImGui.TextColored(Warnfarbe, "Penumbra is not available.");
-            ImGui.TextColored(Graufarbe, PenumbraBridge.LastError ?? string.Empty);
-            return;
-        }
-
-        var (pinned, rest) = ListBuilder.Build(gemoddet, favourites, suche, taenze);
-
-        if (pinned.Count == 0 && rest.Count == 0)
-        {
-            ImGui.Spacing();
-
-            ImGui.TextColored(Graufarbe, taenze
-                ? "No modded dances found."
-                : "No modded emotes found.");
-
-            if (string.IsNullOrWhiteSpace(suche))
-                ImGui.TextColored(Graufarbe, "Only emotes changed by an enabled mod show up here.");
-
-            return;
-        }
-
-        ImGui.Spacing();
-        ImGui.BeginChild("liste", new(0, 0));
-
-        if (pinned.Count > 0)
-        {
-            Reihe(pinned, "pin");
-            ImGui.Spacing();
-            ImGui.Separator();
-            ImGui.Spacing();
-        }
-
-        Reihe(rest, "rest");
-
-        ImGui.EndChild();
-    }
-
-    /// <summary>Kacheln, die am Fensterrand umbrechen.</summary>
-    private void Reihe(IReadOnlyList<ModdedEmote> eintraege, string kuerzel)
-    {
-        var breite = ImGui.GetContentRegionAvail().X;
-        var kachel = config.IconSize + ImGui.GetStyle().ItemSpacing.X + ImGui.GetStyle().FramePadding.X * 2;
-        var proZeile = Math.Max(1, (int)(breite / kachel));
-
-        for (var i = 0; i < eintraege.Count; i++)
-        {
-            if (i % proZeile != 0)
-                ImGui.SameLine();
-
-            Kachel(eintraege[i], kuerzel);
-        }
-    }
-
-    private void Kachel(ModdedEmote m, string kuerzel)
-    {
-        var id = m.Emote.Id;
-        var frei = EmoteRunner.IsUnlocked(id);
-        var angeheftet = favourites.Contains(id);
-
-        var symbol = Plugin.Textures.GetFromGameIcon(new(m.Emote.IconId)).GetWrapOrDefault();
-
-        // Das Stern-Rechteck **vor** dem Knopf berechnen: Danach laesst es sich nicht
-        // mehr ohne Cursor-Bewegung ermitteln, und jede Bewegung verschoebe das
-        // Layout - der Stern wuerde zum letzten Element, an dem SameLine ausrichtet.
-        var ecke = ImGui.GetCursorScreenPos();
-        var kachelbreite = config.IconSize + ImGui.GetStyle().FramePadding.X * 2f;
-
-        var sternMitte = new Vector2(ecke.X + kachelbreite - Sternkante / 2f - 3f,
-                                     ecke.Y + Sternkante / 2f + 3f);
-
-        var halb = new Vector2(Sternkante / 2f, Sternkante / 2f);
-        var ueberStern = ImGui.IsMouseHoveringRect(sternMitte - halb, sternMitte + halb);
-
-        if (!frei)
-            ImGui.BeginDisabled();
-
-        // ImageButton nimmt in diesen Bindings keine String-Kennung entgegen - die
-        // Eindeutigkeit muss deshalb ueber PushID kommen. Ohne das halten zwei
-        // Kacheln mit gleichem Symbol sich fuer denselben Knopf.
-        ImGui.PushID($"{kuerzel}{id}");
-
-        var geklickt = symbol is null
-            ? ImGui.Button(m.Emote.Name, new(config.IconSize, config.IconSize))
-            : ImGui.ImageButton(symbol.Handle, new(config.IconSize, config.IconSize));
-
-        ImGui.PopID();
-
-        if (!frei)
-            ImGui.EndDisabled();
-
-        // Ein Klick auf den Stern soll das Emote nicht abspielen - der Knopf liegt
-        // darunter und faengt ihn zuerst ab.
-        if (geklickt && frei && !ueberStern)
-            EmoteRunner.Play(id);
-
-        var ueberKachel = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled);
-
-        if (ueberStern && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
-        {
-            favourites.Toggle(id);
-            save();
-            angeheftet = !angeheftet;
-        }
-
-        if (ueberKachel)
-        {
-            ImGui.SetTooltip(
-                $"{m.Emote.Name}   {m.Emote.TextCommand}\n" +
-                $"Mods: {string.Join(", ", m.Mods)}\n" +
-                (frei
-                    ? angeheftet ? "Click the star to unpin" : "Click the star to pin"
-                    : "Not unlocked"));
-
-            // Rechtsklick bleibt als Abkuerzung fuer alle, die ihn kennen.
-            if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
-            {
-                favourites.Toggle(id);
-                save();
-            }
-        }
-
-        DrawStern(sternMitte, angeheftet, ueberKachel || ueberStern, ueberStern);
+        var (breite, hoehe) = kompakt ? (config.CompactWidth, config.CompactHeight) : (config.FullWidth, config.FullHeight);
+        return breite > 0 && hoehe > 0 ? new Vector2(breite, hoehe) : StandardGroesse(kompakt);
     }
 
     /// <summary>
-    /// Der Stern in der oberen rechten Ecke einer Kachel.
-    ///
-    /// Ein sichtbares Zeichen statt eines versteckten Rechtsklicks: Man soll auf einen
-    /// Blick sehen, was angeheftet ist, und es dort umschalten, wo man es sieht.
-    ///
-    /// **Nur gezeichnet, kein eigenes Element.** Ein unsichtbarer Knopf hier wuerde
-    /// zum letzten Element im Fluss, und `SameLine` richtete die naechste Kachel
-    /// daran aus - das Gitter fiele treppenartig auseinander. Die Klickpruefung
-    /// laeuft deshalb ueber das Rechteck, nicht ueber ein Widget.
-    ///
-    /// Gezeichnet von Hand statt als Schriftzeichen: Ein „★" fehlt in der
-    /// Standardschrift und erschiene als leeres Kaestchen.
+    /// Wechselt die Ansicht. Die Lage bleibt, weil das Fenster seinen Namen behaelt; die Groesse der
+    /// verlassenen Ansicht wird gemerkt und die der neuen im naechsten Frame gesetzt. Gehoert in den Zeichenpfad
+    /// des Fensters, weil die aktuelle Groesse nur dort ablesbar ist.
     /// </summary>
-    private static void DrawStern(Vector2 mitte, bool angeheftet, bool sichtbar, bool ueberStern)
+    private void WechselAnsicht(ViewMode neu)
     {
-        // Unangeheftete Sterne bleiben aus, bis die Maus die Kachel beruehrt - sonst
-        // ist das Gitter voller Zeichen, die nichts aussagen.
-        if (!angeheftet && !sichtbar)
+        if (config.View == neu)
             return;
 
-        var farbe = angeheftet ? Sternfarbe : (ueberStern ? Sternhover : Sterngrau);
-        var radius = Sternkante / 2.6f;
+        var groesse = ImGui.GetWindowSize();
 
-        var liste = ImGui.GetWindowDrawList();
+        if (config.View == ViewMode.Compact)
+            (config.CompactWidth, config.CompactHeight) = (groesse.X, groesse.Y);
+        else
+            (config.FullWidth, config.FullHeight) = (groesse.X, groesse.Y);
 
-        liste.AddCircleFilled(mitte, radius, farbe);
-        liste.AddCircle(mitte, radius, Sternrand, 0, 1.5f);
+        config.View = neu;
+        groesseSetzen = true;
+
+        if (neu == ViewMode.Compact && tab > TabPosen)
+        {
+            tab = 0;
+            config.LastTab = 0;
+        }
+
+        save();
     }
 
-    // ------------------------------------------------------------------ Posen
-
-    private void DrawPosen()
+    private void DrawVoll(float deckkraft)
     {
-        var stand = PoseController.Read();
+        Decor.HeaderBand(ImGui.GetFrameHeight() + ImGui.GetStyle().ItemSpacing.Y + ImGui.GetTextLineHeight(), deckkraft);
+        DrawKopf();
+        ImGui.Dummy(new Vector2(0, 6));
 
-        if (stand is null)
+        var tabs = new (FontAwesomeIcon Icon, string Label)[]
         {
-            ImGui.TextColored(Graufarbe, "No character loaded.");
+            (FontAwesomeIcon.HandPaper, Beschriftung("Emote", "Emotes", EmoteKind.Emote)),
+            (FontAwesomeIcon.Music, Beschriftung("Dance", "Dances", EmoteKind.Dance)),
+            (FontAwesomeIcon.Smile, Beschriftung("Expression", "Expressions", EmoteKind.Expression)),
+            (FontAwesomeIcon.Child, "Poses"),
+            (FontAwesomeIcon.Cog, "Settings"),
+        };
+
+        if (Widgets.PillTabs("tabs", tabs, ref tab))
+        {
+            config.LastTab = tab;
+            save();
+        }
+
+        ImGui.Dummy(new Vector2(0, 8));
+
+        if (tab < TabPosen)
+            DrawEmoteTab((EmoteKind)tab);
+        else if (tab == TabPosen)
+            DrawPosen();
+        else
+            DrawEinstellungen();
+    }
+
+    private void DrawKopf()
+    {
+        ImGui.AlignTextToFramePadding();
+        Widgets.Icon(FontAwesomeIcon.Running, Theme.AccentLight);
+        ImGui.SameLine();
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.AccentLight, "EnMotion");
+        ImGui.SameLine();
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.Muted, version);
+
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip($"{zeichenzeit.Summary()}\n{abfragezeit.Summary()}");
+
+        DrawStatusMarken();
+        DrawStatuszeile();
+    }
+
+    /// <summary>
+    /// Fragt Penumbra hoechstens alle zwei Sekunden, weil jede Pruefung ein IPC-Aufruf ist.
+    /// So faellt auch auf, wenn Penumbra zur Laufzeit ausgeschaltet wird.
+    /// </summary>
+    private bool PenumbraDa()
+    {
+        var jetzt = DateTime.UtcNow;
+        if (jetzt - penumbraGeprueft > TimeSpan.FromSeconds(2))
+        {
+            penumbraDa = PenumbraBridge.IsAvailable;
+            penumbraGeprueft = jetzt;
+        }
+
+        return penumbraDa;
+    }
+
+    private void DrawStatusMarken()
+    {
+        var marken = new List<(string Text, Vector4 Punkt, string Tooltip)>();
+
+        if (EmoteLaeuft())
+            marken.Add(("Emote running", Theme.Accent, "An emote is playing right now."));
+
+        var da = PenumbraDa();
+        marken.Add(("Penumbra", da ? Theme.Success : Theme.Danger,
+            da ? "Penumbra is loaded." : $"Penumbra can't be reached: {PenumbraBridge.LastError}"));
+
+        var abstand = ImGui.GetStyle().ItemSpacing.X;
+        var breite = marken.Sum(m => Widgets.PillWidth(m.Text, true)) + abstand * (marken.Count - 1)
+            + abstand + Widgets.IconButtonWidth(FontAwesomeIcon.Compress);
+
+        ImGui.SameLine(ImGui.GetContentRegionMax().X - breite);
+        for (var i = 0; i < marken.Count; i++)
+        {
+            if (i > 0)
+                ImGui.SameLine();
+
+            Widgets.StatusPill(marken[i].Text, marken[i].Punkt);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(marken[i].Tooltip);
+        }
+
+        ImGui.SameLine();
+        if (Widgets.IconButton("ansicht", FontAwesomeIcon.Compress, "Compact view"))
+            WechselAnsicht(ViewMode.Compact);
+    }
+
+    private void DrawStatuszeile()
+    {
+        if (!penumbraDa)
+        {
+            ImGui.TextColored(Theme.Muted, "Penumbra is required.");
             return;
         }
 
-        var jetzt = stand.Value;
+        var mods = gemoddet.SelectMany(m => m.Mods).Distinct().Count();
 
-        ImGui.TextUnformatted($"Current stance: {PoseController.Describe(jetzt.Type)}");
+        var emotes = Anzahl(EmoteKind.Emote);
+        var tanz = Anzahl(EmoteKind.Dance);
+        var ausdruecke = Anzahl(EmoteKind.Expression);
 
-        if (PoseController.IsEmoting())
-            ImGui.TextColored(Graufarbe, "An emote is running - the pose follows once it ends.");
-
-        ImGui.Separator();
-        ImGui.Spacing();
-
-        // Angezeigt werden alle Haltungen, waehlbar ist nur die aktuelle: Eine Pose
-        // laesst sich nur innerhalb der Haltung wechseln, in der man steht.
-        foreach (var typ in Enum.GetValues<EmoteController.PoseType>())
-        {
-            if (!Enum.IsDefined(typ))
-                continue;
-
-            var aktuelle = typ == jetzt.Type;
-
-            if (aktuelle)
-                ImGui.TextUnformatted(PoseController.Describe(typ));
-            else
-                ImGui.TextColored(Graufarbe, PoseController.Describe(typ));
-
-            if (!aktuelle)
-            {
-                ImGui.SameLine();
-                ImGui.TextColored(Graufarbe, "  (switch to this stance to choose)");
-                continue;
-            }
-
-            for (byte i = 0; i < jetzt.Count; i++)
-            {
-                ImGui.SameLine();
-
-                var aktiv = i == jetzt.Current;
-
-                if (aktiv)
-                    ImGui.PushStyleColor(ImGuiCol.Button, Aktivfarbe);
-
-                if (ImGui.Button($"{i + 1}##{typ}{i}", new(34, 0)))
-                    PoseController.Request(typ, i);
-
-                if (aktiv)
-                    ImGui.PopStyleColor();
-            }
-        }
+        ImGui.TextColored(Theme.Muted,
+            $"{emotes} modded {(emotes == 1 ? "emote" : "emotes")} · {tanz} {(tanz == 1 ? "dance" : "dances")} · "
+            + $"{ausdruecke} {(ausdruecke == 1 ? "expression" : "expressions")} · {mods} {(mods == 1 ? "mod" : "mods")}");
     }
 
-    // ------------------------------------------------------------ Einstellungen
-
-    private void DrawEinstellungen()
+    private string Beschriftung(string einzahl, string mehrzahl, EmoteKind art)
     {
-        ImGui.Spacing();
+        var n = Anzahl(art);
+        return $"{(n == 1 ? einzahl : mehrzahl)} · {n}";
+    }
 
-        var sichtbar = config.ButtonVisible;
-        if (ImGui.Checkbox("Show the button", ref sichtbar))
+    private int Anzahl(EmoteKind art) => gemoddet.Count(m => m.Emote.Kind == art);
+
+    /// <summary>
+    /// EmoteController.IsEmoting meldete im Spiel dauerhaft wahr. Verlaesslich ist die
+    /// Haltung: Waehrend eines Emotes ist sie nicht ablesbar, und daran erkennt auch
+    /// PoseController ein laufendes Emote.
+    /// </summary>
+    private static bool EmoteLaeuft() =>
+        PoseController.Read() is not null && !PoseController.HasValidPose();
+
+    private void Aktualisieren()
+    {
+        if (!PenumbraDa())
         {
-            config.ButtonVisible = sichtbar;
-            save();
+            penumbraWarDa = false;
+            if (gemoddet.Count > 0)
+                gemoddet = [];
+
+            return;
         }
 
-        ImGui.TextColored(Graufarbe, "The small icon that opens this window.");
+        // Erstes Zeichnen und Wiederkehr von Penumbra fragen sofort ab.
+        var sofort = !penumbraWarDa;
+        penumbraWarDa = true;
 
-        var gesperrt = config.ButtonLocked;
-        if (ImGui.Checkbox("Lock its position", ref gesperrt))
-        {
-            config.ButtonLocked = gesperrt;
-            save();
-        }
+        if (!sofort && DateTime.UtcNow < naechsteAbfrage && !PenumbraBridge.TryTakeChange(Entprellung))
+            return;
 
-        ImGui.TextColored(Graufarbe, "So it cannot be dragged away by accident.");
+        // Vor der Abfrage, damit ein Ereignis waehrend der Abfrage nicht verloren geht.
+        PenumbraBridge.ClearChange();
 
-        ImGui.Separator();
+        var start = Stopwatch.GetTimestamp();
+        gemoddet = ModdedEmotes.Find(Plugin.Data);
+        abfragezeit.Add(Stopwatch.GetElapsedTime(start));
 
-        var groesse = config.IconSize;
-        ImGui.SetNextItemWidth(220);
-        if (ImGui.SliderFloat("Icon size", ref groesse, 24f, 96f, "%.0f"))
-        {
-            config.IconSize = groesse;
-            save();
-        }
-
-        ImGui.Separator();
-        ImGui.TextColored(Graufarbe, "Also reachable with /enmotion.");
+        naechsteAbfrage = DateTime.UtcNow + Rueckfall;
     }
 }

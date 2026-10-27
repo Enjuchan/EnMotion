@@ -19,9 +19,12 @@ public static class ModdedEmotes
 {
     private const string Prefix = "Emote: ";
 
+    // Die Tabelle aendert sich waehrend einer Sitzung nicht; Find laeuft nur im Zeichenpfad.
+    private static Dictionary<string, EmoteEntry>? catalogByName;
+
     public static IReadOnlyList<ModdedEmote> Find(IDataManager data)
     {
-        var catalog = EmoteCatalog.LoadAll(data)
+        var catalog = catalogByName ??= EmoteCatalog.LoadAll(data)
             .GroupBy(e => e.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.CurrentCultureIgnoreCase);
 
