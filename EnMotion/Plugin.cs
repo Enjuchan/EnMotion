@@ -4,6 +4,7 @@ using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using EnMotion.Core;
+using EnMotion.Ui;
 
 namespace EnMotion;
 
@@ -24,6 +25,9 @@ public sealed class Plugin : IDalamudPlugin
     private readonly PoseFavourites poseFavourites = new();
     private readonly MainWindow window;
     private readonly ButtonWindow button;
+    private WelcomeWindow welcomeWindow = null!;
+    private ChangelogWindow changelogWindow = null!;
+    private readonly Welcome welcome;
     private readonly WindowSystem windows = new("EnMotion");
 
     public Plugin()
@@ -31,17 +35,37 @@ public sealed class Plugin : IDalamudPlugin
         // ECommons braucht das für DalamudReflector, das der Dependencies-Tab zum Installieren nutzt.
         ECommons.ECommonsMain.Init(PluginInterface, this);
 
-        config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        // Null heißt: Dalamud hatte nie eine Konfiguration dieses Plugins, also eine Neuinstallation.
+        var savedConfig = PluginInterface.GetPluginConfig();
+        config = savedConfig as Configuration ?? new Configuration();
         Loc.Init(PluginInterface, config.Language);
         favourites.Load(config.Favourites);
         poseFavourites.Load(config.PoseFavourites);
 
         Ui.Widgets.Init(Textures);
         var version = PluginInterface.Manifest.AssemblyVersion.ToString(3);
-        window = new MainWindow(config, favourites, poseFavourites, Speichern, version,
-                                new Dependencies(PluginInterface, Log, EnMotionDependencies.Groups),
-                                EnMotionAbout.Create(version), Log);
+        var dependencies = new Dependencies(PluginInterface, Log, EnMotionDependencies.Groups);
+        window = new MainWindow(config, favourites, poseFavourites, Speichern, version, dependencies,
+                                EnMotionAbout.Create(version),
+                                () => welcomeWindow.IsOpen = true, () => changelogWindow.IsOpen = true, Log);
         windows.AddWindow(window);
+
+        var fullVersion = PluginInterface.Manifest.AssemblyVersion.ToString();
+        var saveLanguage = new Action<string>(code =>
+        {
+            config.Language = code;
+            Speichern();
+        });
+        welcome = new Welcome(ClientState, fullVersion, savedConfig is not null, config.LastSeenVersion, seen =>
+        {
+            config.LastSeenVersion = seen;
+            Speichern();
+        });
+        changelogWindow = new ChangelogWindow("EnMotion", EnMotionChangelog.Entries, welcome.IsNew, saveLanguage);
+        welcomeWindow = new WelcomeWindow(EnMotionWelcome.Create(version, config, Speichern, window.WechselAnsichtVonAussen),
+            dependencies, () => window.IsOpen = true, () => changelogWindow.IsOpen = true, saveLanguage);
+        windows.AddWindow(welcomeWindow);
+        windows.AddWindow(changelogWindow);
         button = new ButtonWindow(config, window.Toggle, Speichern);
 
         PluginInterface.UiBuilder.Draw += Zeichnen;
@@ -60,6 +84,8 @@ public sealed class Plugin : IDalamudPlugin
         Framework.Update += Puls;
 
         PenumbraBridge.Subscribe();
+
+        welcome.Start(() => welcomeWindow.IsOpen = true, () => changelogWindow.IsOpen = true);
 
         // Penumbra ist zwingend: Ohne die Mod-Erkennung gibt es nichts anzuzeigen.
         if (!PenumbraBridge.IsAvailable)
@@ -112,6 +138,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        welcome.Dispose();
         Loc.Changed -= BefehlAnmelden;
         Loc.Dispose();
         Commands.RemoveHandler("/enmotion");

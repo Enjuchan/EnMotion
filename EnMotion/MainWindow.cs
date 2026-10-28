@@ -24,6 +24,8 @@ public sealed partial class MainWindow : Window
     private readonly string version;
     private readonly Dependencies dependencies;
     private readonly AboutInfo about;
+    private readonly Action openWelcome;
+    private readonly Action openChangelog;
 
     private string suche = string.Empty;
 
@@ -68,7 +70,7 @@ public sealed partial class MainWindow : Window
     private bool ansichtKompakt;
 
     public MainWindow(Configuration config, Favourites favourites, PoseFavourites poseFavourites, Action save, string version,
-                      Dependencies dependencies, AboutInfo about, IPluginLog log)
+                      Dependencies dependencies, AboutInfo about, Action openWelcome, Action openChangelog, IPluginLog log)
         // Der Titel bleibt "EnMotion", damit gespeicherte Fensterlage und -groesse erhalten bleiben.
         : base("EnMotion")
     {
@@ -79,6 +81,8 @@ public sealed partial class MainWindow : Window
         this.version = version;
         this.dependencies = dependencies;
         this.about = about;
+        this.openWelcome = openWelcome;
+        this.openChangelog = openChangelog;
 
         tab = Math.Clamp(config.LastTab, 0, config.View == ViewMode.Compact ? TabPosen : TabAnzahl - 1);
         zeichenzeit = new FrameTiming(log, "Draw", TimeSpan.FromSeconds(5), () => config.ShowDiagnostics);
@@ -88,12 +92,6 @@ public sealed partial class MainWindow : Window
         RespectCloseHotkey = false;
         DisableWindowSounds = true;
         DisableFadeInFadeOut = true;
-
-        TitleBarButtons.Add(Loc.CreateButton(code =>
-        {
-            config.Language = code;
-            save();
-        }));
     }
 
     /// <summary>Einstieg des Zahnrads im Plugin-Installer: Vollansicht mit dem Reiter Settings, ein zweiter Klick schliesst.</summary>
@@ -201,17 +199,26 @@ public sealed partial class MainWindow : Window
     /// verlassenen Ansicht wird gemerkt und die der neuen im naechsten Frame gesetzt. Gehoert in den Zeichenpfad
     /// des Fensters, weil die aktuelle Groesse nur dort ablesbar ist.
     /// </summary>
-    private void WechselAnsicht(ViewMode neu)
+    private void WechselAnsicht(ViewMode neu) => WechselAnsicht(neu, ImGui.GetWindowSize());
+
+    /// <summary>
+    /// Wechselt die Ansicht von einem anderen Fenster aus, etwa dem Willkommensfenster. Die Größe des Hauptfensters
+    /// ist dann die aus seinem letzten Frame; war es noch nie zu sehen, gibt es nichts zu merken.
+    /// </summary>
+    public void WechselAnsichtVonAussen(ViewMode neu) => WechselAnsicht(neu, letzteGroesse);
+
+    private void WechselAnsicht(ViewMode neu, Vector2 groesse)
     {
         if (config.View == neu)
             return;
 
-        var groesse = ImGui.GetWindowSize();
-
-        if (config.View == ViewMode.Compact)
-            (config.CompactWidth, config.CompactHeight) = (groesse.X, groesse.Y);
-        else
-            (config.FullWidth, config.FullHeight) = (groesse.X, groesse.Y);
+        if (groesse.X > 0)
+        {
+            if (config.View == ViewMode.Compact)
+                (config.CompactWidth, config.CompactHeight) = (groesse.X, groesse.Y);
+            else
+                (config.FullWidth, config.FullHeight) = (groesse.X, groesse.Y);
+        }
 
         config.View = neu;
         groesseSetzen = true;
@@ -265,7 +272,7 @@ public sealed partial class MainWindow : Window
         else
         {
             ImGui.BeginChild("about", new Vector2(0, 0));
-            AboutView.Draw(about);
+            AboutView.Draw(about, openWelcome, openChangelog);
             ImGui.EndChild();
         }
     }
@@ -315,7 +322,8 @@ public sealed partial class MainWindow : Window
 
         var abstand = ImGui.GetStyle().ItemSpacing.X;
         var breite = marken.Sum(m => Widgets.PillWidth(m.Text, true)) + abstand * (marken.Count - 1)
-            + abstand + Widgets.IconButtonWidth(FontAwesomeIcon.Compress);
+            + abstand + Widgets.IconButtonWidth(FontAwesomeIcon.Compress)
+            + abstand + Widgets.LanguagePillWidth();
 
         ImGui.SameLine(ImGui.GetContentRegionMax().X - breite);
         for (var i = 0; i < marken.Count; i++)
@@ -331,6 +339,15 @@ public sealed partial class MainWindow : Window
         ImGui.SameLine();
         if (Widgets.IconButton("ansicht", FontAwesomeIcon.Compress, Loc.T("Compact view", "Kompaktansicht")))
             WechselAnsicht(ViewMode.Compact);
+
+        ImGui.SameLine();
+        Widgets.LanguagePill(SpracheSpeichern);
+    }
+
+    private void SpracheSpeichern(string code)
+    {
+        config.Language = code;
+        save();
     }
 
     private void DrawStatuszeile()

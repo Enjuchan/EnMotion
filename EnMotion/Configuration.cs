@@ -12,6 +12,9 @@ public sealed class Configuration : IPluginConfiguration
 {
     public int Version { get; set; } = 1;
 
+    /// <summary>Die zuletzt gesehene Plugin-Version, als Text; leer vor dem ersten Willkommens- oder Changelog-Fenster. Getrennt von <see cref="Version"/>, das Migrationen zählt.</summary>
+    public string? LastSeenVersion { get; set; }
+
     /// <summary>
     /// Angeheftete Emotes, in der Reihenfolge des Hinzufuegens. Nur Emotes und
     /// Taenze - Posen haben keine Nummer in diesem Sinn, sondern eine Haltung und
