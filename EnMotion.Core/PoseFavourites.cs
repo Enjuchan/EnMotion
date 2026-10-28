@@ -33,6 +33,13 @@ public sealed class PoseFavourites
     public IReadOnlyList<byte> IndicesOf(byte stance) =>
         items.Where(p => p.Stance == stance).Select(p => p.Index).ToList();
 
+    /// <summary>
+    /// Verschiebt unter den sichtbaren Posen einer Haltung; andere Haltungen und unsichtbare Posen
+    /// behalten ihren Platz.
+    /// </summary>
+    public bool Move(byte stance, Func<byte, bool> sichtbar, int von, int nach) =>
+        Reorder.Move(items, p => p.Stance == stance && sichtbar(p.Index), von, nach);
+
     /// <summary>Beim Laden aus der Konfiguration. Doppelte fallen weg.</summary>
     public void Load(IEnumerable<PoseFavouriteEntry> gespeichert)
     {

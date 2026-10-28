@@ -314,19 +314,22 @@ public sealed partial class MainWindow
     /// </summary>
     private void DrawFavoritenReihe(bool kompakt = false)
     {
-        var pinned = ListBuilder.Pinned(gemoddet, favourites, Ausblenden);
+        // Ungemoddete Favoriten brauchen die ganze Emote-Tabelle; sie wird erst geladen, wenn es einen gibt.
+        var braucheKatalog = favourites.Ids.Any(id => !gemoddet.Any(m => m.Emote.Id == id));
+        var pinned = ListBuilder.Pinned(gemoddet, favourites, Ausblenden, braucheKatalog ? AlleEmotes : null);
 
-        if (pinned.Count > 0 || HatPosenFavoriten)
+        // In der Vollansicht steht die Reihe immer da, weil die Plus-Kachel der Weg zum ersten Favoriten ist.
+        if (pinned.Count > 0 || HatPosenFavoriten || !kompakt)
         {
             if (!kompakt)
             {
                 Widgets.SectionHeader(Loc.T("Favourites", "Favoriten"),
-                    Loc.T("Add or remove favourites with a right-click on a tile. Poses are favourited with a right-click on their chip in the Poses tab.",
-                        "Füge Favoriten per Rechtsklick auf eine Kachel hinzu oder entferne sie. Posen markierst du per Rechtsklick auf ihren Chip im Tab Posen als Favorit."));
+                    Loc.T("Add or remove favourites with a right-click on a tile. The + tile adds any unlocked emote, also unmodded ones. Poses are favourited with a right-click on their chip in the Poses tab.",
+                        "Füge Favoriten per Rechtsklick auf eine Kachel hinzu oder entferne sie. Die +-Kachel nimmt jedes freigeschaltete Emote auf, auch ungemoddete. Posen markierst du per Rechtsklick auf ihren Chip im Tab Posen als Favorit."));
             }
 
-            Reihe(pinned, "pin");
-            DrawFavouritePoseChips(pinned.Count > 0);
+            Reihe(pinned, "pin", !kompakt);
+            DrawFavouritePoseChips();
             ImGui.Spacing();
         }
 
@@ -345,19 +348,42 @@ public sealed partial class MainWindow
     }
 
     /// <summary>Kacheln, die am Fensterrand umbrechen.</summary>
-    private void Reihe(IReadOnlyList<ModdedEmote> eintraege, string kuerzel)
+    private void Reihe(IReadOnlyList<ModdedEmote> eintraege, string kuerzel, bool plus = false)
     {
         var erste = true;
+        var sortierbar = kuerzel == "pin";
+
+        if (sortierbar)
+            ZugBeginn(kuerzel);
 
         // Das Menue kann Favoriten aendern, waehrend die Reihe gezeichnet wird.
-        foreach (var m in eintraege.ToList())
+        var liste = eintraege.ToList();
+
+        for (var i = 0; i < liste.Count; i++)
         {
             Widgets.Flow(ref erste, config.IconSize);
-            Kachel(m, kuerzel);
+            Kachel(liste[i], kuerzel, i, sortierbar);
+        }
+
+        if (sortierbar)
+        {
+            ZugEnde(kuerzel, (von, nach) =>
+            {
+                var ids = liste.Select(e => e.Emote.Id).ToHashSet();
+
+                if (favourites.Move(ids.Contains, von, nach))
+                    save();
+            });
+        }
+
+        if (plus)
+        {
+            Widgets.Flow(ref erste, config.IconSize);
+            DrawPlusKachel();
         }
     }
 
-    private void Kachel(ModdedEmote m, string kuerzel)
+    private void Kachel(ModdedEmote m, string kuerzel, int index, bool sortierbar)
     {
         var id = m.Emote.Id;
         var frei = EmoteRunner.IsUnlocked(id);
@@ -366,49 +392,61 @@ public sealed partial class MainWindow
 
         var kante = config.IconSize;
         var hoehe = kante + (config.ShowNames ? 2f + ImGui.GetTextLineHeight() : 0f);
-        var ecke = ImGui.GetCursorScreenPos();
-        var max = ecke + new Vector2(kante, kante);
+        var natur = ImGui.GetCursorScreenPos();
 
         ImGui.PushID($"{kuerzel}{id}");
         var geklickt = ImGui.InvisibleButton("##kachel", new Vector2(kante, hoehe));
         var ueber = ImGui.IsItemHovered();
+
+        if (sortierbar)
+            geklickt = ZugPruefen(kuerzel, index, id, geklickt);
+
         DrawMenue(m, benutzbar, angeheftet);
         ImGui.PopID();
 
         if (geklickt && benutzbar)
             Abspielen(id);
 
-        var liste = ImGui.GetWindowDrawList();
-        var alpha = !frei ? 0.35f : !benutzbar ? 0.6f : 1f;
+        // Der Knopf bleibt im Layout stehen; gezeichnet wird mit dem Versatz aus dem Gleiten oder Ziehen.
+        var gezogen = sortierbar && IstGezogen(kuerzel, id);
+        var ecke = natur + (sortierbar ? Versatz(kuerzel, id) : Vector2.Zero);
+        var max = ecke + new Vector2(kante, kante);
+        var a = gezogen ? ZugAlpha : 1f;
+        var liste = gezogen ? ImGui.GetForegroundDrawList() : ImGui.GetWindowDrawList();
+        var alpha = (!frei ? 0.35f : !benutzbar ? 0.6f : 1f) * a;
 
-        liste.AddRectFilled(ecke, max, Theme.U32(Theme.Hover), 6f);
+        // Ungemoddete Favoriten: gleiche Kachel, aber der Rahmen bleibt gedaempft.
+        var rahmen = m.IsModded ? Theme.Accent : Theme.Muted;
+
+        liste.AddRectFilled(ecke, max, Abdunkeln(Theme.Hover, a), 6f);
 
         var symbol = Plugin.Textures.GetFromGameIcon(new(m.Emote.IconId)).GetWrapOrEmpty();
         liste.AddImageRounded(symbol.Handle, ecke + Vector2.One, max - Vector2.One, Vector2.Zero, Vector2.One,
             ImGui.GetColorU32(new Vector4(1f, 1f, 1f, alpha)), 5f);
 
-        liste.AddRect(ecke, max, Theme.U32(ueber ? Theme.Accent : Theme.Border), 6f, ImDrawFlags.None, 1f);
+        liste.AddRect(ecke, max,
+            Abdunkeln(ueber ? rahmen : m.IsModded ? Theme.Border : Theme.CardBorder, a), 6f, ImDrawFlags.None, 1f);
 
         if (zuletztGespielt.TryGetValue(id, out var gespielt))
         {
             var verbleibend = 1.0 - (ImGui.GetTime() - gespielt) / Leuchtdauer;
             if (verbleibend > 0)
-                liste.AddRect(ecke, max, Theme.U32(Theme.Accent with { W = (float)verbleibend }), 6f, ImDrawFlags.None, 2f);
+                liste.AddRect(ecke, max, Abdunkeln(rahmen with { W = (float)verbleibend }, a), 6f, ImDrawFlags.None, 2f);
             else
                 zuletztGespielt.Remove(id);
         }
 
         if (!frei)
-            DrawSchloss(liste, max);
+            DrawSchloss(liste, max, a);
 
         if (angeheftet)
-            DrawHerz(liste, ecke, max, kante);
+            DrawHerz(liste, ecke, max, kante, a);
 
         if (config.ShowNames)
-            liste.AddText(new Vector2(ecke.X, max.Y + 2f), Theme.U32(Theme.Muted), Kuerzen(m.Emote.Name, kante));
+            liste.AddText(new Vector2(ecke.X, max.Y + 2f), Abdunkeln(Theme.Muted, a), Kuerzen(m.Emote.Name, kante));
 
-        if (ueber)
-            DrawTooltip(m, frei, benutzbar);
+        if (ueber && !Zieht)
+            DrawTooltip(m, frei, benutzbar, sortierbar);
     }
 
     private void Abspielen(uint id)
@@ -473,15 +511,15 @@ public sealed partial class MainWindow
     /// Das Favoriten-Herz oben rechts, nur gezeichnet und ohne Trefferflaeche. Es waechst mit der
     /// Icon-Groesse; die Kontur in Card grenzt es vom Icon ab.
     /// </summary>
-    private static void DrawHerz(ImDrawListPtr liste, Vector2 ecke, Vector2 max, float kante)
+    private static void DrawHerz(ImDrawListPtr liste, Vector2 ecke, Vector2 max, float kante, float a = 1f)
     {
         // Zwei Kreise vom Radius r und ein Dreieck darunter: Breite 4r, Hoehe etwa 3,4r.
         var r = Widgets.S(Math.Clamp(kante * 0.3f, 12f, 26f)) / 4f;
         var rand = Widgets.S(3f);
         var mitte = new Vector2(max.X - rand - 2f * r, ecke.Y + rand + 1.7f * r);
 
-        Herz(liste, mitte, r + Widgets.S(0.75f), Theme.U32(Theme.Card));
-        Herz(liste, mitte, r, Theme.U32(Theme.Accent));
+        Herz(liste, mitte, r + Widgets.S(0.75f), Abdunkeln(Theme.Card, a));
+        Herz(liste, mitte, r, Abdunkeln(Theme.Accent, a));
     }
 
     private static void Herz(ImDrawListPtr liste, Vector2 mitte, float r, uint farbe)
@@ -500,7 +538,7 @@ public sealed partial class MainWindow
             farbe);
     }
 
-    private static void DrawSchloss(ImDrawListPtr liste, Vector2 max)
+    private static void DrawSchloss(ImDrawListPtr liste, Vector2 max, float a = 1f)
     {
         var text = FontAwesomeIcon.Lock.ToIconString();
 
@@ -512,14 +550,14 @@ public sealed partial class MainWindow
         var flaeche = max - new Vector2(abstand);
         var min = flaeche - groesse - new Vector2(abstand * 2f);
 
-        liste.AddRectFilled(min, flaeche, Theme.U32(Theme.Background with { W = 0.85f }), 4f);
+        liste.AddRectFilled(min, flaeche, Abdunkeln(Theme.Background with { W = 0.85f }, a), 4f);
 
         ImGui.PushFont(UiBuilder.IconFont);
-        liste.AddText(min + new Vector2(abstand), Theme.U32(Theme.Muted), text);
+        liste.AddText(min + new Vector2(abstand), Abdunkeln(Theme.Muted, a), text);
         ImGui.PopFont();
     }
 
-    private static void DrawTooltip(ModdedEmote m, bool frei, bool benutzbar)
+    private static void DrawTooltip(ModdedEmote m, bool frei, bool benutzbar, bool sortierbar)
     {
         var zustand = !frei ? Loc.T("Not unlocked.", "Nicht freigeschaltet.")
             : !benutzbar ? Loc.T("Can't be used right now.", "Gerade nicht benutzbar.")
@@ -528,8 +566,17 @@ public sealed partial class MainWindow
         ImGui.BeginTooltip();
         ImGui.TextUnformatted(m.Emote.Name);
         ImGui.TextColored(Theme.Muted, m.Emote.TextCommand);
-        ImGui.TextColored(Theme.Muted, $"{Loc.T("Mods", "Mods")}: {string.Join(", ", m.Mods)}");
+
+        if (m.IsModded)
+            ImGui.TextColored(Theme.Muted, $"{Loc.T("Mods", "Mods")}: {string.Join(", ", m.Mods)}");
+        else
+            ImGui.TextColored(Theme.Muted, Loc.T("Not modded", "Nicht gemoddet"));
+
         ImGui.TextColored(Theme.Muted, zustand);
+
+        if (sortierbar)
+            ImGui.TextColored(Theme.Muted, SortierHinweis);
+
         ImGui.EndTooltip();
     }
 

@@ -16,45 +16,82 @@ public sealed partial class MainWindow
     private bool HatPosenFavoriten => PoseController.Read() is { } stand && FavorisiertePosen(stand).Count > 0;
 
     /// <summary>
-    /// Chips der angehefteten Posen der aktuellen Haltung, am Ende der Favoritenreihe. Nach Kacheln
-    /// stehen sie in deren Zeile und werden an der Kachelmitte ausgerichtet.
+    /// Chips der angehefteten Posen der aktuellen Haltung in einer eigenen Zeile unter den Kacheln, per
+    /// Strg+Ziehen sortierbar. Ohne solche Posen entfaellt die Zeile.
     /// </summary>
-    private void DrawFavouritePoseChips(bool nachKacheln)
+    private void DrawFavouritePoseChips()
     {
         if (PoseController.Read() is not { } stand)
             return;
 
-        var kachelOben = nachKacheln ? ImGui.GetItemRectMin().Y : 0f;
-        var erste = !nachKacheln;
-        var ersterChip = true;
+        var indizes = FavorisiertePosen(stand);
 
-        foreach (var index in FavorisiertePosen(stand))
+        if (indizes.Count == 0)
+            return;
+
+        var erste = true;
+        const string reihe = "posen";
+
+        ZugBeginn(reihe);
+
+        for (var i = 0; i < indizes.Count; i++)
         {
+            var index = indizes[i];
             var label = $"Pose {index + 1}";
             Widgets.Flow(ref erste, Widgets.ChipWidth(label));
-
-            // Ein Chip, der in der Kachelzeile bleibt, sitzt sonst am oberen Kachelrand.
-            if (nachKacheln && ersterChip && MathF.Abs(ImGui.GetCursorScreenPos().Y - kachelOben) < 1f)
-            {
-                var pos = ImGui.GetCursorScreenPos();
-                ImGui.SetCursorScreenPos(pos with { Y = pos.Y + (config.IconSize - ImGui.GetFrameHeight()) / 2f });
-            }
-
-            ersterChip = false;
-            PoseChip("fav", stand.Type, index, label, index == stand.Current);
+            PoseChip("fav", stand.Type, index, label, index == stand.Current, reihe, i);
         }
+
+        ZugEnde(reihe, (von, nach) =>
+        {
+            if (poseFavourites.Move((byte)stand.Type, indizes.Contains, von, nach))
+                save();
+        });
     }
 
-    /// <summary>Pose als Chip mit Herz, wenn angeheftet, und Rechtsklick-Menue; der Klick springt zur Pose.</summary>
-    private void PoseChip(string kuerzel, EmoteController.PoseType typ, byte index, string label, bool aktiv)
+    /// <summary>
+    /// Pose als Chip mit Herz, wenn angeheftet, und Rechtsklick-Menue; der Klick springt zur Pose. Mit
+    /// <paramref name="reihe"/> ist der Chip per Strg+Ziehen sortierbar.
+    /// </summary>
+    private void PoseChip(string kuerzel, EmoteController.PoseType typ, byte index, string label, bool aktiv,
+        string? reihe = null, int position = 0)
     {
         ImGui.PushID($"{kuerzel}{(byte)typ}-{index}");
 
-        if (Widgets.Chip("pose", label, aktiv, Loc.T("Click to switch to this pose, right-click for more", "Klick wechselt zu dieser Pose, Rechtsklick zeigt mehr")))
-            PoseController.Request(typ, index);
+        var tooltip = Loc.T("Click to switch to this pose, right-click for more", "Klick wechselt zu dieser Pose, Rechtsklick zeigt mehr");
+        var a = 1f;
 
-        var min = ImGui.GetItemRectMin();
-        var max = ImGui.GetItemRectMax();
+        bool geklickt;
+        Vector2 min, max;
+
+        if (reihe is null)
+        {
+            geklickt = Widgets.Chip("pose", label, aktiv, tooltip);
+            min = ImGui.GetItemRectMin();
+            max = ImGui.GetItemRectMax();
+        }
+        else
+        {
+            // Wie Widgets.Chip, aber mit Versatz fürs Gleiten und Ziehen; der Knopf bleibt im Layout stehen.
+            var natur = ImGui.GetCursorScreenPos();
+            var groesse = new Vector2(Widgets.ChipWidth(label), ImGui.GetFrameHeight());
+
+            geklickt = ImGui.InvisibleButton("##chippose", groesse);
+            var ueber = ImGui.IsItemHovered();
+            geklickt = ZugPruefen(reihe, position, index, geklickt);
+
+            var gezogen = IstGezogen(reihe, index);
+            a = gezogen ? ZugAlpha : 1f;
+            min = natur + Versatz(reihe, index);
+            max = min + groesse;
+            ChipZeichnen(gezogen ? ImGui.GetForegroundDrawList() : ImGui.GetWindowDrawList(), min, groesse, label, aktiv, ueber, a);
+
+            if (ueber && !Zieht)
+                ImGui.SetTooltip(tooltip + "\n" + SortierHinweis);
+        }
+
+        if (geklickt)
+            PoseController.Request(typ, index);
 
         DrawPosenMenue(typ, index);
         ImGui.PopID();
@@ -62,12 +99,31 @@ public sealed partial class MainWindow
         if (poseFavourites.Contains((byte)typ, index))
         {
             var r = Widgets.S(2.5f);
-            var liste = ImGui.GetWindowDrawList();
+            var liste = reihe is not null && IstGezogen(reihe, index) ? ImGui.GetForegroundDrawList() : ImGui.GetWindowDrawList();
             var mitte = new Vector2(max.X - r * 1.5f, min.Y + r * 1.2f);
 
-            Herz(liste, mitte, r + Widgets.S(0.75f), Theme.U32(Theme.Card));
-            Herz(liste, mitte, r, Theme.U32(Theme.Accent));
+            Herz(liste, mitte, r + Widgets.S(0.75f), Abdunkeln(Theme.Card, a));
+            Herz(liste, mitte, r, Abdunkeln(Theme.Accent, a));
         }
+    }
+
+    /// <summary>Zeichnet einen Chip wie <see cref="Widgets.Chip"/>, an beliebiger Stelle und mit Deckkraft.</summary>
+    private static void ChipZeichnen(ImDrawListPtr liste, Vector2 pos, Vector2 groesse, string label, bool an, bool ueber, float a)
+    {
+        var radius = groesse.Y / 2;
+
+        if (an)
+            liste.AddRectFilled(pos, pos + groesse, Abdunkeln(ueber ? Theme.AccentLight : Theme.Accent, a), radius);
+        else
+        {
+            if (ueber)
+                liste.AddRectFilled(pos, pos + groesse, Abdunkeln(Theme.Hover, a), radius);
+            liste.AddRect(pos, pos + groesse, Abdunkeln(Theme.Border, a), radius, ImDrawFlags.None, 1f);
+        }
+
+        var textY = pos.Y + (groesse.Y - ImGui.GetTextLineHeight()) / 2;
+        liste.AddText(new Vector2(pos.X + 11, textY),
+            Abdunkeln(an ? Theme.OnAccent : ueber ? Theme.Text : Theme.Muted, a), label);
     }
 
     /// <summary>Rechtsklick-Menue einer Pose; gehoert zum zuletzt gezeichneten Element, dem Chip.</summary>

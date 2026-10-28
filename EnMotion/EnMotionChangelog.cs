@@ -5,6 +5,17 @@ public static class EnMotionChangelog
 {
     public static readonly IReadOnlyList<ChangelogEntry> Entries =
     [
+        new("0.2.4.0", "2026-10-28",
+        [
+            new("Favourite poses now sit in their own row below the favourite tiles.",
+                "Favorisierte Posen stehen jetzt in einer eigenen Zeile unter den Favoriten-Kacheln."),
+            new("Favourites can be reordered: hold Ctrl and drag a tile or pose. The others slide aside to make room. Esc or letting go outside the row cancels. Each row sorts on its own, and the order is saved.",
+                "Favoriten lassen sich sortieren: Halte Strg gedrückt und ziehe eine Kachel oder Pose. Die anderen rücken weich zur Seite und machen Platz. Esc oder Loslassen außerhalb der Zeile bricht ab. Jede Zeile sortiert für sich, die Reihenfolge wird gespeichert."),
+            new("New + tile at the end of the favourites: it adds any unlocked emote, also unmodded ones. These are marked with a muted frame and stay in the row even if a mod is turned off.",
+                "Neue +-Kachel am Ende der Favoriten: Sie nimmt jedes freigeschaltete Emote auf, auch ungemoddete. Diese tragen einen gedämpften Rahmen und bleiben in der Reihe, auch wenn ein Mod abgeschaltet wird."),
+            new("The description in the About tab now wraps instead of running out of the window.",
+                "Die Beschreibung im About-Tab bricht jetzt um, statt aus dem Fenster zu laufen."),
+        ]),
         new("0.2.3.0", "2026-10-28",
         [
             new("A welcome window appears after you install EnMotion, with the first steps and the key settings.",
