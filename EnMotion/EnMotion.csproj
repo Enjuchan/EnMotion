@@ -10,6 +10,7 @@
     </PropertyGroup>
     <ItemGroup>
         <Content Include="EnMotion.json" CopyToOutputDirectory="Always" />
+        <Content Include="images\**" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\EnMotion.Core\EnMotion.Core.csproj" />
