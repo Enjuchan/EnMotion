@@ -29,6 +29,9 @@ public sealed class Configuration : IPluginConfiguration
     public float ButtonX { get; set; } = 300f;
     public float ButtonY { get; set; } = 300f;
 
+    /// <summary>Kantenlaenge des Knopfs vor der globalen UI-Skalierung.</summary>
+    public float ButtonSize { get; set; } = 48f;
+
     /// <summary>
     /// Symbol auf dem Knopf. 246267 ist das Symbol von „Pet" aus der Emote-Tabelle.
     /// </summary>
@@ -61,6 +64,9 @@ public sealed class Configuration : IPluginConfiguration
     public bool CloseAfterPlay { get; set; }
     public bool ShowNames { get; set; }
     public bool HideLockedEmotes { get; set; }
+
+    /// <summary>Zeigt die Zeichenzeit in der Statuszeile und schreibt die Messungen ins Log.</summary>
+    public bool ShowDiagnostics { get; set; }
 
     public ButtonStyle ButtonStyle { get; set; } = ButtonStyle.Hotbar;
 }

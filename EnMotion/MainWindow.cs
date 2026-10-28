@@ -2,18 +2,20 @@ using System.Diagnostics;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Plugin.Services;
 using EnMotion.Core;
 using EnMotion.Ui;
 
 namespace EnMotion;
 
 /// <summary>
-/// Fuenf Reiter: gemoddete Emotes, Taenze und Ausdruecke, alle Posen, Einstellungen.
+/// Sieben Reiter: gemoddete Emotes, Taenze und Ausdruecke, alle Posen, Einstellungen, Dependencies und About.
 ///
 /// Die Bindings heissen `Dalamud.Bindings.ImGui`, nicht ImGuiNET - Beispiele aus dem
 /// Netz passen meist nicht.
 /// </summary>
-public sealed partial class MainWindow(Configuration config, Favourites favourites, PoseFavourites poseFavourites, Action save, string version)
+public sealed partial class MainWindow(Configuration config, Favourites favourites, PoseFavourites poseFavourites, Action save, string version,
+                  Dependencies dependencies, AboutInfo about, IPluginLog log)
 {
     public bool Visible;
 
@@ -30,10 +32,12 @@ public sealed partial class MainWindow(Configuration config, Favourites favourit
     private DateTime naechsteAbfrage = DateTime.MinValue;
     private bool penumbraWarDa;
 
-    private const int TabAnzahl = 5;
+    private const int TabAnzahl = 7;
     private const int TabPosen = 3;
+    private const int TabEinstellungen = 4;
+    private const int TabDependencies = 5;
 
-    // Settings gibt es nur in der Vollansicht.
+    // Settings, Dependencies und About gibt es nur in der Vollansicht.
     private int tab = Math.Clamp(config.LastTab, 0, config.View == ViewMode.Compact ? TabPosen : TabAnzahl - 1);
 
     /// <summary>Setzt die gemerkte Groesse der Ansicht einmalig, im Frame nach dem Umschalten.</summary>
@@ -42,8 +46,26 @@ public sealed partial class MainWindow(Configuration config, Favourites favourit
     private bool penumbraDa;
     private DateTime penumbraGeprueft = DateTime.MinValue;
 
-    private readonly FrameTiming zeichenzeit = new(Plugin.Log, "Window draw time", TimeSpan.FromSeconds(5));
-    private readonly FrameTiming abfragezeit = new(Plugin.Log, "Modded emote lookup", TimeSpan.FromSeconds(30));
+    private readonly FrameTiming zeichenzeit = new(log, "Window draw time", TimeSpan.FromSeconds(5), () => config.ShowDiagnostics);
+    private readonly FrameTiming abfragezeit = new(log, "Modded emote lookup", TimeSpan.FromSeconds(30), () => config.ShowDiagnostics);
+
+    /// <summary>Groesse des Fensters im letzten gezeichneten Frame, fuer den Wechsel der Ansicht von aussen.</summary>
+    private Vector2 letzteGroesse;
+
+    private bool einstellungenAnfrage;
+
+    /// <summary>Einstieg des Zahnrads im Plugin-Installer: Vollansicht mit dem Reiter Settings, ein zweiter Klick schliesst.</summary>
+    public void ToggleSettings()
+    {
+        if (Visible && config.View == ViewMode.Full && tab == TabEinstellungen)
+        {
+            Visible = false;
+            return;
+        }
+
+        Visible = true;
+        einstellungenAnfrage = true;
+    }
 
     public void Draw()
     {
@@ -61,6 +83,24 @@ public sealed partial class MainWindow(Configuration config, Favourites favourit
         ImGui.PushStyleColor(ImGuiCol.TitleBgActive, Theme.Header with { W = deckkraft });
         ImGui.PushStyleColor(ImGuiCol.TitleBgCollapsed, Theme.Header with { W = deckkraft });
         using var deckend = new Theme.Scope(4, 0);
+
+        if (einstellungenAnfrage)
+        {
+            einstellungenAnfrage = false;
+
+            if (config.View == ViewMode.Compact)
+            {
+                if (letzteGroesse.X > 0)
+                    (config.CompactWidth, config.CompactHeight) = (letzteGroesse.X, letzteGroesse.Y);
+
+                config.View = ViewMode.Full;
+                groesseSetzen = true;
+            }
+
+            tab = TabEinstellungen;
+            config.LastTab = tab;
+            save();
+        }
 
         var kompakt = config.View == ViewMode.Compact;
 
@@ -87,6 +127,8 @@ public sealed partial class MainWindow(Configuration config, Favourites favourit
             ImGui.End();
             return;
         }
+
+        letzteGroesse = ImGui.GetWindowSize();
 
         Aktualisieren();
 
@@ -152,6 +194,8 @@ public sealed partial class MainWindow(Configuration config, Favourites favourit
             (FontAwesomeIcon.Smile, Beschriftung("Expression", "Expressions", EmoteKind.Expression)),
             (FontAwesomeIcon.Child, "Poses"),
             (FontAwesomeIcon.Cog, "Settings"),
+            (FontAwesomeIcon.PuzzlePiece, "Dependencies"),
+            (FontAwesomeIcon.InfoCircle, "About"),
         };
 
         if (Widgets.PillTabs("tabs", tabs, ref tab))
@@ -166,8 +210,20 @@ public sealed partial class MainWindow(Configuration config, Favourites favourit
             DrawEmoteTab((EmoteKind)tab);
         else if (tab == TabPosen)
             DrawPosen();
-        else
+        else if (tab == TabEinstellungen)
             DrawEinstellungen();
+        else if (tab == TabDependencies)
+        {
+            ImGui.BeginChild("dependencies", new Vector2(0, 0));
+            DependenciesView.Draw(dependencies);
+            ImGui.EndChild();
+        }
+        else
+        {
+            ImGui.BeginChild("about", new Vector2(0, 0));
+            AboutView.Draw(about);
+            ImGui.EndChild();
+        }
     }
 
     private void DrawKopf()
@@ -180,9 +236,6 @@ public sealed partial class MainWindow(Configuration config, Favourites favourit
         ImGui.SameLine();
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.Muted, version);
-
-        if (ImGui.IsItemHovered())
-            ImGui.SetTooltip($"{zeichenzeit.Summary()}\n{abfragezeit.Summary()}");
 
         DrawStatusMarken();
         DrawStatuszeile();
@@ -237,21 +290,33 @@ public sealed partial class MainWindow(Configuration config, Favourites favourit
 
     private void DrawStatuszeile()
     {
+        string text;
+
         if (!penumbraDa)
+            text = "Penumbra is required.";
+        else
         {
-            ImGui.TextColored(Theme.Muted, "Penumbra is required.");
-            return;
+            var mods = gemoddet.SelectMany(m => m.Mods).Distinct().Count();
+
+            var emotes = Anzahl(EmoteKind.Emote);
+            var tanz = Anzahl(EmoteKind.Dance);
+            var ausdruecke = Anzahl(EmoteKind.Expression);
+
+            text = $"{emotes} modded {(emotes == 1 ? "emote" : "emotes")} · {tanz} {(tanz == 1 ? "dance" : "dances")} · "
+                + $"{ausdruecke} {(ausdruecke == 1 ? "expression" : "expressions")} · {mods} {(mods == 1 ? "mod" : "mods")}";
         }
 
-        var mods = gemoddet.SelectMany(m => m.Mods).Distinct().Count();
+        var start = ImGui.GetCursorPosX();
+        ImGui.TextColored(Theme.Muted, text);
 
-        var emotes = Anzahl(EmoteKind.Emote);
-        var tanz = Anzahl(EmoteKind.Dance);
-        var ausdruecke = Anzahl(EmoteKind.Expression);
+        if (!config.ShowDiagnostics)
+            return;
 
-        ImGui.TextColored(Theme.Muted,
-            $"{emotes} modded {(emotes == 1 ? "emote" : "emotes")} · {tanz} {(tanz == 1 ? "dance" : "dances")} · "
-            + $"{ausdruecke} {(ausdruecke == 1 ? "expression" : "expressions")} · {mods} {(mods == 1 ? "mod" : "mods")}");
+        // Rechtsbuendig, aber nie ueber den Statustext hinweg.
+        var zeit = zeichenzeit.Summary();
+        ImGui.SameLine(Math.Max(start + ImGui.CalcTextSize(text).X + ImGui.GetStyle().ItemSpacing.X * 2,
+            ImGui.GetContentRegionMax().X - ImGui.CalcTextSize(zeit).X));
+        ImGui.TextColored(Theme.Muted, zeit);
     }
 
     private string Beschriftung(string einzahl, string mehrzahl, EmoteKind art)

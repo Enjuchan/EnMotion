@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 
@@ -49,17 +51,19 @@ public static class Decor
     /// <summary>Hinterlegtes Band hinter der Kopfzeile, von Rand zu Rand, mit Trennlinie darunter.</summary>
     /// <param name="height">Höhe des Inhalts der Kopfzeile ab der aktuellen Cursor-Position.</param>
     /// <param name="opacity">Deckkraft der Bandfläche, 1 ist unverändert; die Trennlinie bleibt deckend.</param>
-    public static void HeaderBand(float height, float opacity = 1f)
+    /// <param name="topRounding">Rundung der oberen Ecken, damit das Band bei abgerundetem Fenster nicht über die Ecken ragt; 0 lässt sie eckig.</param>
+    public static void HeaderBand(float height, float opacity = 1f, float topRounding = 0f)
     {
         var draw = ImGui.GetWindowDrawList();
         var windowPos = ImGui.GetWindowPos();
         var windowSize = ImGui.GetWindowSize();
         var padding = ImGui.GetStyle().WindowPadding;
-        var top = ImGui.GetCursorScreenPos().Y - padding.Y;
+        var top = Math.Max(windowPos.Y + 1, ImGui.GetCursorScreenPos().Y - padding.Y);
         var bottom = ImGui.GetCursorScreenPos().Y + height + padding.Y * 0.7f;
 
         // Halbtransparent, damit Schimmer und Punktraster auch hinter der Kopfzeile durchscheinen.
-        draw.AddRectFilled(new Vector2(windowPos.X + 1, top), new Vector2(windowPos.X + windowSize.X - 1, bottom), Theme.U32(Theme.Hex(0x1A1319, 0.6f * opacity)));
+        draw.AddRectFilled(new Vector2(windowPos.X + 1, top), new Vector2(windowPos.X + windowSize.X - 1, bottom), Theme.U32(Theme.Hex(0x1A1319, 0.6f * opacity)),
+            topRounding, topRounding > 0 ? ImDrawFlags.RoundCornersTop : ImDrawFlags.None);
         draw.AddLine(new Vector2(windowPos.X + 1, bottom), new Vector2(windowPos.X + windowSize.X - 1, bottom), Theme.U32(Theme.CardBorder), 1f);
     }
 }

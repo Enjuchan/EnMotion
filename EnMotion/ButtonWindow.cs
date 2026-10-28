@@ -14,8 +14,6 @@ namespace EnMotion;
 /// </summary>
 public sealed class ButtonWindow(Configuration config, Action onClick, Action save)
 {
-    private const float Kante = 48f;
-
     /// <summary>
     /// Ob die laufende Mausbewegung ein Ziehen ist. Ohne diese Unterscheidung oeffnet
     /// jedes Verschieben am Ende auch das Fenster - der Knopf meldet den Klick beim
@@ -52,7 +50,9 @@ public sealed class ButtonWindow(Configuration config, Action onClick, Action sa
             return;
         }
 
-        var kante = Widgets.S(Kante);
+        // Rundung und Figur wachsen mit, damit der Knopf in jeder Groesse gleich aussieht.
+        var faktor = config.ButtonSize / 48f;
+        var kante = Widgets.S(config.ButtonSize);
         var pos = ImGui.GetCursorScreenPos();
 
         ImGui.PushID("enmotion");
@@ -66,23 +66,24 @@ public sealed class ButtonWindow(Configuration config, Action onClick, Action sa
 
         if (config.ButtonStyle == ButtonStyle.Hotbar)
         {
-            draw.AddRectFilled(pos, max, Theme.U32(Theme.Hover), 6f);
+            draw.AddRectFilled(pos, max, Theme.U32(Theme.Hover), 6f * faktor);
             if (config.ButtonIconId != 0)
             {
                 var wrap = Plugin.Textures.GetFromGameIcon(new(config.ButtonIconId)).GetWrapOrEmpty();
-                draw.AddImageRounded(wrap.Handle, pos + Vector2.One, max - Vector2.One, Vector2.Zero, Vector2.One, 0xFFFFFFFF, 5f);
+                draw.AddImageRounded(wrap.Handle, pos + Vector2.One, max - Vector2.One, Vector2.Zero, Vector2.One, 0xFFFFFFFF, 5f * faktor);
             }
-            draw.AddRect(pos, max, rand, 6f, ImDrawFlags.None, 1f);
+            draw.AddRect(pos, max, rand, 6f * faktor, ImDrawFlags.None, 1f);
         }
         else
         {
-            draw.AddRectFilled(pos, max, Theme.U32(Theme.Card), 8f);
-            draw.AddRect(pos, max, rand, 8f, ImDrawFlags.None, 1f);
+            draw.AddRectFilled(pos, max, Theme.U32(Theme.Card), 8f * faktor);
+            draw.AddRect(pos, max, rand, 8f * faktor, ImDrawFlags.None, 1f);
 
             var figur = FontAwesomeIcon.Running.ToIconString();
             ImGui.PushFont(UiBuilder.IconFont);
-            var groesse = ImGui.CalcTextSize(figur);
-            draw.AddText(pos + (new Vector2(kante, kante) - groesse) / 2, Theme.U32(Theme.AccentLight), figur);
+            var schrift = ImGui.GetFontSize() * faktor;
+            var groesse = ImGui.CalcTextSize(figur) * faktor;
+            draw.AddText(ImGui.GetFont(), schrift, pos + (new Vector2(kante, kante) - groesse) / 2, Theme.U32(Theme.AccentLight), figur);
             ImGui.PopFont();
         }
 
