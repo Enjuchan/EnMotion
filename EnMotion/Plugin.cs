@@ -16,6 +16,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static ICommandManager Commands { get; private set; } = null!;
     [PluginService] internal static IChatGui Chat { get; private set; } = null!;
     [PluginService] internal static ICondition Condition { get; private set; } = null!;
+    [PluginService] internal static IClientState ClientState { get; private set; } = null!;
 
     private readonly Configuration config;
     private readonly Favourites favourites = new();
@@ -59,6 +60,10 @@ public sealed class Plugin : IDalamudPlugin
 
     private void Zeichnen()
     {
+        // Ohne diese Pruefung stand der Knopf schon auf dem Titelbildschirm und in Ladebildschirmen.
+        if (!ClientState.IsLoggedIn || Condition[ConditionFlag.BetweenAreas] || Condition[ConditionFlag.BetweenAreas51])
+            return;
+
         // Visible bleibt unberuehrt, damit beides nach dem Kampf von selbst wiederkommt.
         if (config.HideInCombat && Condition[ConditionFlag.InCombat])
             return;
