@@ -23,10 +23,23 @@ public sealed partial class MainWindow
 
     private static string Titel(EmoteKind art) => art switch
     {
-        EmoteKind.Dance => "Modded dances",
-        EmoteKind.Expression => "Modded expressions",
-        _ => "Modded emotes",
+        EmoteKind.Dance => Loc.T("Modded dances", "Gemoddete Tänze"),
+        EmoteKind.Expression => Loc.T("Modded expressions", "Gemoddete Mimik"),
+        _ => Loc.T("Modded emotes", "Gemoddete Emotes"),
     };
+
+    private static string KeinEintrag(EmoteKind art) => art switch
+    {
+        EmoteKind.Dance => Loc.T("No modded dances found", "Keine gemoddeten Tänze gefunden"),
+        EmoteKind.Expression => Loc.T("No modded expressions found", "Keine gemoddete Mimik gefunden"),
+        _ => Loc.T("No modded emotes found", "Keine gemoddeten Emotes gefunden"),
+    };
+
+    private static string Suchhinweis => Loc.T("search...", "Suche...");
+
+    private static string NurEintraege => Loc.T(
+        "Only entries changed by an enabled mod show up here.",
+        "Hier erscheinen nur Einträge, die ein aktivierter Mod verändert.");
 
     private bool Ausblenden(ModdedEmote m) => config.HideLockedEmotes && !EmoteRunner.IsUnlocked(m.Emote.Id);
 
@@ -53,7 +66,7 @@ public sealed partial class MainWindow
             {
                 Widgets.Icon(FontAwesomeIcon.Times, Theme.Danger);
                 ImGui.SameLine();
-                ImGui.TextUnformatted("Penumbra is not loaded");
+                ImGui.TextUnformatted(Loc.T("Penumbra is not loaded", "Penumbra ist nicht geladen"));
 
                 if (!string.IsNullOrEmpty(PenumbraBridge.LastError))
                     ImGui.TextColored(Theme.Muted, PenumbraBridge.LastError);
@@ -71,19 +84,18 @@ public sealed partial class MainWindow
             if (!kompakt)
                 Widgets.SectionHeader(titel);
 
-            DrawZustand("empty", $"No {titel.ToLowerInvariant()} found",
-                kompakt ? null : "Only entries changed by an enabled mod show up here.");
+            DrawZustand("empty", KeinEintrag(art), kompakt ? null : NurEintraege);
             return;
         }
 
         // In der Kompaktansicht stehen Suche und Filterknopf in der Leiste.
         if (!kompakt && namen.Count > 1)
         {
-            var label = filter.Count > 0 ? $"Mods · {filter.Count}" : "Mods";
+            var label = filter.Count > 0 ? $"{Loc.T("Mods", "Mods")} · {filter.Count}" : Loc.T("Mods", "Mods");
             var knopf = FilterKnopfBreite(label);
 
             ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - knopf - ImGui.GetStyle().ItemSpacing.X);
-            ImGui.InputTextWithHint("##suche", "search...", ref suche, 64);
+            ImGui.InputTextWithHint("##suche", Suchhinweis, ref suche, 64);
             ImGui.SameLine();
             DrawFilterKnopf(label, filter.Count > 0);
             DrawModPopup(art, namen, filter);
@@ -96,7 +108,7 @@ public sealed partial class MainWindow
                 {
                     Widgets.Flow(ref erste, Widgets.TagChipWidth(name, false));
 
-                    if (Widgets.TagChip($"mod{name}", name, tooltip: "Mod filter"))
+                    if (Widgets.TagChip($"mod{name}", name, tooltip: Loc.T("Mod filter", "Mod-Filter")))
                         filter.Remove(name);
                 }
             }
@@ -106,7 +118,7 @@ public sealed partial class MainWindow
         else if (!kompakt)
         {
             ImGui.SetNextItemWidth(-1);
-            ImGui.InputTextWithHint("##suche", "search...", ref suche, 64);
+            ImGui.InputTextWithHint("##suche", Suchhinweis, ref suche, 64);
         }
 
         var rest = ListBuilder.Grid(gemoddet, favourites, art, suche, filter, Ausblenden);
@@ -114,13 +126,15 @@ public sealed partial class MainWindow
         if (!kompakt)
         {
             Widgets.SectionHeader($"{titel} · {rest.Count}",
-                "Only entries changed by an enabled mod show up here. Favourites stand above.");
+                $"{NurEintraege} {Loc.T("Favourites stand above.", "Favoriten stehen darüber.")}");
         }
 
         if (rest.Count == 0)
         {
-            DrawZustand("nomatch", "No matches",
-                kompakt ? null : "Nothing fits the search or the mod filter, or the rest is pinned above or hidden as locked.");
+            DrawZustand("nomatch", Loc.T("No matches", "Keine Treffer"),
+                kompakt ? null : Loc.T(
+                    "Nothing fits the search or the mod filter, or the rest is pinned above or hidden as locked.",
+                    "Nichts passt zur Suche oder zum Mod-Filter, oder der Rest ist oben angeheftet oder als nicht freigeschaltet ausgeblendet."));
             return;
         }
 
@@ -185,7 +199,9 @@ public sealed partial class MainWindow
         }
 
         if (ueber)
-            ImGui.SetTooltip(an && label.Length == 0 ? "Filter by mod (active)" : "Filter by mod");
+            ImGui.SetTooltip(an && label.Length == 0
+                ? Loc.T("Filter by mod (active)", "Nach Mod filtern (aktiv)")
+                : Loc.T("Filter by mod", "Nach Mod filtern"));
     }
 
     /// <summary>Popup mit einem Schalter je Mod dieses Reiters und der Zahl seiner Eintraege.</summary>
@@ -215,14 +231,15 @@ public sealed partial class MainWindow
         var namenBreite = Math.Min(
             namen.Max(n => ImGui.CalcTextSize(n).X),
             Math.Max(Widgets.S(360f) - zahlBreite - schalter - luft * 2f, Widgets.S(80f)));
-        var gesamt = Math.Max(namenBreite + luft + zahlBreite + luft + schalter, ImGui.CalcTextSize("Filter by mod").X);
+        var popupTitel = Loc.T("Filter by mod", "Nach Mod filtern");
+        var gesamt = Math.Max(namenBreite + luft + zahlBreite + luft + schalter, ImGui.CalcTextSize(popupTitel).X);
 
-        ImGui.TextColored(Theme.AccentLight, "Filter by mod");
+        ImGui.TextColored(Theme.AccentLight, popupTitel);
 
         if (namen.Count > 8)
         {
             ImGui.SetNextItemWidth(gesamt);
-            ImGui.InputTextWithHint("##modsuche", "search...", ref modSuche, 64);
+            ImGui.InputTextWithHint("##modsuche", Suchhinweis, ref modSuche, 64);
         }
 
         var zeile = ImGui.GetFrameHeight() + ImGui.GetStyle().ItemSpacing.Y;
@@ -271,7 +288,7 @@ public sealed partial class MainWindow
         {
             ImGui.Separator();
 
-            if (ImGui.Selectable("Clear filter"))
+            if (ImGui.Selectable(Loc.T("Clear filter", "Filter zurücksetzen")))
                 filter.Clear();
         }
 
@@ -303,8 +320,9 @@ public sealed partial class MainWindow
         {
             if (!kompakt)
             {
-                Widgets.SectionHeader("Favourites",
-                    "Add or remove favourites with a right-click on a tile. Poses are favourited with a right-click on their chip in the Poses tab.");
+                Widgets.SectionHeader(Loc.T("Favourites", "Favoriten"),
+                    Loc.T("Add or remove favourites with a right-click on a tile. Poses are favourited with a right-click on their chip in the Poses tab.",
+                        "Füge Favoriten per Rechtsklick auf eine Kachel hinzu oder entferne sie. Posen markierst du per Rechtsklick auf ihren Chip im Tab Posen als Favorit."));
             }
 
             Reihe(pinned, "pin");
@@ -399,7 +417,7 @@ public sealed partial class MainWindow
         zuletztGespielt[id] = ImGui.GetTime();
 
         if (config.CloseAfterPlay)
-            Visible = false;
+            IsOpen = false;
     }
 
     private void Umschalten(uint id)
@@ -422,18 +440,20 @@ public sealed partial class MainWindow
         ImGui.TextColored(Theme.AccentLight, m.Emote.Name);
         ImGui.Separator();
 
-        if (ImGui.Selectable("Play", false, benutzbar ? ImGuiSelectableFlags.None : ImGuiSelectableFlags.Disabled))
+        if (ImGui.Selectable(Loc.T("Play", "Abspielen"), false, benutzbar ? ImGuiSelectableFlags.None : ImGuiSelectableFlags.Disabled))
             Abspielen(id);
 
-        if (ImGui.Selectable(angeheftet ? "Remove from favourites" : "Add to favourites"))
+        if (ImGui.Selectable(angeheftet
+            ? Loc.T("Remove from favourites", "Aus Favoriten entfernen")
+            : Loc.T("Add to favourites", "Zu Favoriten hinzufügen")))
             Umschalten(id);
 
-        if (ImGui.Selectable("Copy command"))
+        if (ImGui.Selectable(Loc.T("Copy command", "Befehl kopieren")))
             ImGui.SetClipboardText(m.Emote.TextCommand);
 
         foreach (var mod in m.Mods.ToList())
         {
-            if (ImGui.Selectable($"Only show {mod}"))
+            if (ImGui.Selectable(Loc.T($"Only show {mod}", $"Nur {mod} zeigen")))
                 NurMod(m.Emote.Kind, mod);
         }
 
@@ -501,14 +521,14 @@ public sealed partial class MainWindow
 
     private static void DrawTooltip(ModdedEmote m, bool frei, bool benutzbar)
     {
-        var zustand = !frei ? "Not unlocked."
-            : !benutzbar ? "Can't be used right now."
-            : "Click to play, right-click for more";
+        var zustand = !frei ? Loc.T("Not unlocked.", "Nicht freigeschaltet.")
+            : !benutzbar ? Loc.T("Can't be used right now.", "Gerade nicht benutzbar.")
+            : Loc.T("Click to play, right-click for more", "Klick spielt ab, Rechtsklick zeigt mehr");
 
         ImGui.BeginTooltip();
         ImGui.TextUnformatted(m.Emote.Name);
         ImGui.TextColored(Theme.Muted, m.Emote.TextCommand);
-        ImGui.TextColored(Theme.Muted, $"Mods: {string.Join(", ", m.Mods)}");
+        ImGui.TextColored(Theme.Muted, $"{Loc.T("Mods", "Mods")}: {string.Join(", ", m.Mods)}");
         ImGui.TextColored(Theme.Muted, zustand);
         ImGui.EndTooltip();
     }

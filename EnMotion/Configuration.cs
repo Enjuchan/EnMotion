@@ -69,4 +69,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool ShowDiagnostics { get; set; }
 
     public ButtonStyle ButtonStyle { get; set; } = ButtonStyle.Hotbar;
+
+    /// <summary>Gewählte Sprache ("de" oder "en"); null heißt wie Dalamud.</summary>
+    public string? Language { get; set; }
 }

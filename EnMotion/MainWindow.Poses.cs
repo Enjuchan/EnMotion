@@ -50,7 +50,7 @@ public sealed partial class MainWindow
     {
         ImGui.PushID($"{kuerzel}{(byte)typ}-{index}");
 
-        if (Widgets.Chip("pose", label, aktiv, "Click to switch to this pose, right-click for more"))
+        if (Widgets.Chip("pose", label, aktiv, Loc.T("Click to switch to this pose, right-click for more", "Klick wechselt zu dieser Pose, Rechtsklick zeigt mehr")))
             PoseController.Request(typ, index);
 
         var min = ImGui.GetItemRectMin();
@@ -79,7 +79,9 @@ public sealed partial class MainWindow
         ImGui.TextColored(Theme.AccentLight, $"{PoseController.Describe(typ)} · Pose {index + 1}");
         ImGui.Separator();
 
-        if (ImGui.Selectable(poseFavourites.Contains((byte)typ, index) ? "Remove from favourites" : "Add to favourites"))
+        if (ImGui.Selectable(poseFavourites.Contains((byte)typ, index)
+                ? Loc.T("Remove from favourites", "Aus Favoriten entfernen")
+                : Loc.T("Add to favourites", "Zu Favoriten hinzufügen")))
             UmschaltenPose(typ, index);
 
         ImGui.EndPopup();
@@ -99,7 +101,7 @@ public sealed partial class MainWindow
 
         if (stand is null)
         {
-            Widgets.Card("nochar", _ => ImGui.TextColored(Theme.Muted, "No character loaded."));
+            Widgets.Card("nochar", _ => ImGui.TextColored(Theme.Muted, Loc.T("No character loaded.", "Kein Charakter geladen.")));
             return;
         }
 
@@ -111,7 +113,7 @@ public sealed partial class MainWindow
         Widgets.Card("aktuell", breite =>
         {
             var start = ImGui.GetCursorScreenPos();
-            var rechts = $"Pose {jetzt.Current + 1} of {jetzt.Count}";
+            var rechts = Loc.T($"Pose {jetzt.Current + 1} of {jetzt.Count}", $"Pose {jetzt.Current + 1} von {jetzt.Count}");
 
             ImGui.TextColored(Theme.AccentLight, PoseController.Describe(jetzt.Type));
             ImGui.SetCursorScreenPos(new Vector2(start.X + breite - ImGui.CalcTextSize(rechts).X, start.Y));
@@ -127,7 +129,7 @@ public sealed partial class MainWindow
             }
 
             if (EmoteLaeuft())
-                ImGui.TextColored(Theme.Muted, "An emote is running - the pose follows once it ends.");
+                ImGui.TextColored(Theme.Muted, Loc.T("An emote is running - the pose follows once it ends.", "Ein Emote läuft - die Pose folgt, sobald es endet."));
         }, selected: true);
 
         if (kompakt)
@@ -148,7 +150,7 @@ public sealed partial class MainWindow
             Widgets.Card($"stance{(byte)typ}", _ =>
             {
                 ImGui.TextColored(Theme.Muted, PoseController.Describe(typ));
-                ImGui.TextColored(Theme.Muted, "Switch to this stance to choose");
+                ImGui.TextColored(Theme.Muted, Loc.T("Switch to this stance to choose", "Wechsle in diese Haltung, um zu wählen"));
 
                 var erste = true;
 

@@ -116,7 +116,12 @@ public static class PenumbraBridge
     /// das sieht man nur ein leeres Ergebnis und weiss nicht, ob Penumbra fehlt, der
     /// Dienst nicht bereitsteht oder der IPC-Name nicht stimmt.
     /// </summary>
-    public static string? LastError { get; private set; }
+    public static string? LastError => lastError?.ToString();
+
+    private static LocText? lastError;
+
+    /// <summary>Technische Meldungen aus Ausnahmen bleiben in beiden Sprachen gleich.</summary>
+    private static void Fail(Exception e) => lastError = new LocText(e.GetType().Name + ": " + e.Message, e.GetType().Name + ": " + e.Message);
 
     /// <summary>
     /// Was in der Sammlung des eigenen Charakters tatsaechlich veraendert wird.
@@ -140,7 +145,7 @@ public static class PenumbraBridge
 
             if (!valid)
             {
-                LastError = "no character loaded";
+                lastError = new LocText("no character loaded", "kein Charakter geladen");
                 return [];
             }
 
@@ -150,7 +155,7 @@ public static class PenumbraBridge
         }
         catch (Exception e)
         {
-            LastError = e.GetType().Name + ": " + e.Message;
+            Fail(e);
             return [];
         }
     }
@@ -164,7 +169,7 @@ public static class PenumbraBridge
         }
         catch (Exception e)
         {
-            LastError = e.GetType().Name + ": " + e.Message;
+            Fail(e);
             return [];
         }
     }
@@ -180,7 +185,7 @@ public static class PenumbraBridge
         }
         catch (Exception e)
         {
-            LastError = e.GetType().Name + ": " + e.Message;
+            Fail(e);
             return [];
         }
     }
@@ -201,7 +206,7 @@ public static class PenumbraBridge
         }
         catch (Exception e)
         {
-            LastError = e.GetType().Name + ": " + e.Message;
+            Fail(e);
             return [];
         }
     }
@@ -223,7 +228,7 @@ public static class PenumbraBridge
             }
             catch (Exception e)
             {
-                LastError = "Penumbra nicht erreichbar: " + e.GetType().Name;
+                lastError = new LocText("Penumbra not reachable: " + e.GetType().Name, "Penumbra nicht erreichbar: " + e.GetType().Name);
                 return false;
             }
         }

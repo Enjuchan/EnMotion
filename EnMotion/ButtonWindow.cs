@@ -126,7 +126,7 @@ public sealed class ButtonWindow(Configuration config, Action onClick, Action sa
         {
             ImGui.SetTooltip(config.ButtonLocked
                 ? "EnMotion"
-                : "EnMotion\nDrag to move, unlock in the settings");
+                : $"EnMotion\n{Loc.T("Drag to move, unlock in the settings", "Zum Verschieben ziehen, in den Einstellungen entsperren")}");
         }
 
         ImGui.End();

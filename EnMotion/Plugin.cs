@@ -1,4 +1,5 @@
 using Dalamud.Game.ClientState.Conditions;
+using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
@@ -23,6 +24,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly PoseFavourites poseFavourites = new();
     private readonly MainWindow window;
     private readonly ButtonWindow button;
+    private readonly WindowSystem windows = new("EnMotion");
 
     public Plugin()
     {
@@ -30,6 +32,7 @@ public sealed class Plugin : IDalamudPlugin
         ECommons.ECommonsMain.Init(PluginInterface, this);
 
         config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        Loc.Init(PluginInterface, config.Language);
         favourites.Load(config.Favourites);
         poseFavourites.Load(config.PoseFavourites);
 
@@ -38,7 +41,8 @@ public sealed class Plugin : IDalamudPlugin
         window = new MainWindow(config, favourites, poseFavourites, Speichern, version,
                                 new Dependencies(PluginInterface, Log, EnMotionDependencies.Groups),
                                 EnMotionAbout.Create(version), Log);
-        button = new ButtonWindow(config, () => window.Visible = !window.Visible, Speichern);
+        windows.AddWindow(window);
+        button = new ButtonWindow(config, window.Toggle, Speichern);
 
         PluginInterface.UiBuilder.Draw += Zeichnen;
 
@@ -47,10 +51,9 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi += EinstellungenOeffnen;
         PluginInterface.UiBuilder.OpenMainUi += Oeffnen;
 
-        Commands.AddHandler("/enmotion", new Dalamud.Game.Command.CommandInfo((_, _) => Oeffnen())
-        {
-            HelpMessage = EnMotionAbout.ToggleEffect,
-        });
+        // Dalamud übernimmt den Hilfetext bei der Anmeldung, deshalb wird der Befehl beim Sprachwechsel neu angemeldet.
+        BefehlAnmelden();
+        Loc.Changed += BefehlAnmelden;
 
         // Ein Posenwechsel, der waehrend eines Emotes angefordert wurde, wird hier
         // nachgeholt - ohne diesen Puls bleibt er fuer immer liegen.
@@ -60,7 +63,20 @@ public sealed class Plugin : IDalamudPlugin
 
         // Penumbra ist zwingend: Ohne die Mod-Erkennung gibt es nichts anzuzeigen.
         if (!PenumbraBridge.IsAvailable)
-            Chat.PrintError($"[EnMotion] Penumbra is required: {PenumbraBridge.LastError}");
+        {
+            Chat.PrintError($"[EnMotion] {Loc.T(
+                $"Penumbra is required: {PenumbraBridge.LastError}",
+                $"Penumbra wird benötigt: {PenumbraBridge.LastError}")}");
+        }
+    }
+
+    private void BefehlAnmelden()
+    {
+        Commands.RemoveHandler("/enmotion");
+        Commands.AddHandler("/enmotion", new Dalamud.Game.Command.CommandInfo((_, _) => Oeffnen())
+        {
+            HelpMessage = EnMotionAbout.ToggleEffect.ToString(),
+        });
     }
 
     private void Zeichnen()
@@ -69,13 +85,13 @@ public sealed class Plugin : IDalamudPlugin
         if (Condition[ConditionFlag.BetweenAreas] || Condition[ConditionFlag.BetweenAreas51])
             return;
 
-        // Visible bleibt unberuehrt, damit beides nach dem Kampf von selbst wiederkommt.
+        // IsOpen bleibt unberuehrt, damit beides nach dem Kampf von selbst wiederkommt.
         if (config.HideInCombat && Condition[ConditionFlag.InCombat])
             return;
 
-        // Visible wird nicht gespeichert und steht beim Start auf false: Auf dem Titelbildschirm erscheint das
+        // IsOpen wird nicht gespeichert und steht beim Start auf false: Auf dem Titelbildschirm erscheint das
         // Fenster nur, wenn der Nutzer es in dieser Sitzung selbst geöffnet hat. Der Knopf kommt erst nach dem Login.
-        window.Draw();
+        windows.Draw();
 
         if (ClientState.IsLoggedIn)
             button.Draw();
@@ -83,7 +99,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private static void Puls(IFramework _) => PoseController.Tick();
 
-    private void Oeffnen() => window.Visible = !window.Visible;
+    private void Oeffnen() => window.Toggle();
 
     private void EinstellungenOeffnen() => window.ToggleSettings();
 
@@ -96,7 +112,10 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        Loc.Changed -= BefehlAnmelden;
+        Loc.Dispose();
         Commands.RemoveHandler("/enmotion");
+        windows.RemoveAllWindows();
 
         PluginInterface.UiBuilder.Draw -= Zeichnen;
         PluginInterface.UiBuilder.OpenConfigUi -= EinstellungenOeffnen;

@@ -186,13 +186,13 @@ public static class PoseController
     /// <summary>Name der Haltung fuer die Anzeige.</summary>
     public static string Describe(EmoteController.PoseType type) => type switch
     {
-        EmoteController.PoseType.Idle        => "Standing",
-        EmoteController.PoseType.WeaponDrawn => "Weapon drawn",
-        EmoteController.PoseType.Sit         => "Sitting in a chair",
-        EmoteController.PoseType.GroundSit   => "Sitting on the ground",
-        EmoteController.PoseType.Doze        => "Dozing",
-        EmoteController.PoseType.Umbrella    => "Umbrella",
-        EmoteController.PoseType.Accessory   => "Accessory",
+        EmoteController.PoseType.Idle        => Loc.T("Standing", "Stehend"),
+        EmoteController.PoseType.WeaponDrawn => Loc.T("Weapon drawn", "Waffe gezogen"),
+        EmoteController.PoseType.Sit         => Loc.T("Sitting in a chair", "Auf einem Stuhl sitzend"),
+        EmoteController.PoseType.GroundSit   => Loc.T("Sitting on the ground", "Auf dem Boden sitzend"),
+        EmoteController.PoseType.Doze        => Loc.T("Dozing", "Dösend"),
+        EmoteController.PoseType.Umbrella    => Loc.T("Umbrella", "Regenschirm"),
+        EmoteController.PoseType.Accessory   => Loc.T("Accessory", "Accessoire"),
         _                                    => type.ToString(),
     };
 }

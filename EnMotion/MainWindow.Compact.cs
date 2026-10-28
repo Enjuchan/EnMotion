@@ -10,12 +10,12 @@ public sealed partial class MainWindow
 {
     // ------------------------------------------------------------ Kompaktansicht
 
-    private static readonly (FontAwesomeIcon Icon, string Tooltip)[] KompaktTabs =
+    private static (FontAwesomeIcon Icon, string Tooltip)[] KompaktTabs() =>
     [
-        (FontAwesomeIcon.HandPaper, "Emotes"),
-        (FontAwesomeIcon.Music, "Dances"),
-        (FontAwesomeIcon.Smile, "Expressions"),
-        (FontAwesomeIcon.Child, "Poses"),
+        (FontAwesomeIcon.HandPaper, Loc.T("Emotes", "Emotes")),
+        (FontAwesomeIcon.Music, Loc.T("Dances", "Tänze")),
+        (FontAwesomeIcon.Smile, Loc.T("Expressions", "Mimik")),
+        (FontAwesomeIcon.Child, Loc.T("Poses", "Posen")),
     ];
 
     private void DrawKompakt()
@@ -31,7 +31,7 @@ public sealed partial class MainWindow
     /// <summary>Tabs, Suche, Filterknopf und der Knopf zur Vollansicht in einer Zeile.</summary>
     private void DrawLeiste()
     {
-        if (Widgets.IconTabs("ktabs", KompaktTabs, ref tab))
+        if (Widgets.IconTabs("ktabs", KompaktTabs(), ref tab))
         {
             config.LastTab = tab;
             save();
@@ -52,7 +52,7 @@ public sealed partial class MainWindow
         {
             ImGui.SameLine();
             ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - rechts - abstand);
-            ImGui.InputTextWithHint("##suche", "search...", ref suche, 64);
+            ImGui.InputTextWithHint("##suche", Suchhinweis, ref suche, 64);
         }
         else
             ImGui.SameLine(ImGui.GetContentRegionMax().X - rechts);
@@ -65,7 +65,7 @@ public sealed partial class MainWindow
         }
 
         ImGui.SameLine();
-        if (Widgets.IconButton("ansicht", FontAwesomeIcon.Expand, "Full view"))
+        if (Widgets.IconButton("ansicht", FontAwesomeIcon.Expand, Loc.T("Full view", "Vollansicht")))
             WechselAnsicht(ViewMode.Full);
     }
 }
