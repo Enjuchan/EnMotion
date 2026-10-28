@@ -415,8 +415,8 @@ public sealed partial class MainWindow
         var liste = gezogen ? ImGui.GetForegroundDrawList() : ImGui.GetWindowDrawList();
         var alpha = (!frei ? 0.35f : !benutzbar ? 0.6f : 1f) * a;
 
-        // Ungemoddete Favoriten: gleiche Kachel, aber der Rahmen bleibt gedaempft.
-        var rahmen = m.IsModded ? Theme.Accent : Theme.Muted;
+        // Ungemoddete Favoriten und Emotes, deren Mods alle aus sind: gleiche Kachel, aber der Rahmen bleibt gedaempft.
+        var rahmen = m.HasActiveMod ? Theme.Accent : Theme.Muted;
 
         liste.AddRectFilled(ecke, max, Abdunkeln(Theme.Hover, a), 6f);
 
@@ -425,7 +425,7 @@ public sealed partial class MainWindow
             ImGui.GetColorU32(new Vector4(1f, 1f, 1f, alpha)), 5f);
 
         liste.AddRect(ecke, max,
-            Abdunkeln(ueber ? rahmen : m.IsModded ? Theme.Border : Theme.CardBorder, a), 6f, ImDrawFlags.None, 1f);
+            Abdunkeln(ueber ? rahmen : m.HasActiveMod ? Theme.Border : Theme.CardBorder, a), 6f, ImDrawFlags.None, 1f);
 
         if (zuletztGespielt.TryGetValue(id, out var gespielt))
         {
@@ -441,6 +441,10 @@ public sealed partial class MainWindow
 
         if (angeheftet)
             DrawHerz(liste, ecke, max, kante, a);
+
+        var anzahl = ModdedEmotes.Index.VariantsOf(m.Emote.Name).Count;
+        if (anzahl >= 2)
+            DrawBadge(liste, ecke, max, anzahl, a);
 
         if (config.ShowNames)
             liste.AddText(new Vector2(ecke.X, max.Y + 2f), Abdunkeln(Theme.Muted, a), Kuerzen(m.Emote.Name, kante));
@@ -489,22 +493,116 @@ public sealed partial class MainWindow
         if (ImGui.Selectable(Loc.T("Copy command", "Befehl kopieren")))
             ImGui.SetClipboardText(m.Emote.TextCommand);
 
-        foreach (var mod in m.Mods.ToList())
+        var varianten = ModdedEmotes.Index.VariantsOf(m.Emote.Name);
+        if (varianten.Count > 0)
         {
-            if (ImGui.Selectable(Loc.T($"Only show {mod}", $"Nur {mod} zeigen")))
-                NurMod(m.Emote.Kind, mod);
+            ImGui.Separator();
+            ImGui.TextColored(Theme.Muted, Loc.T("Variant", "Variante"));
+
+            // Penumbra wird beim Oeffnen des Menues und nach einer Wahl gefragt, nicht in jedem Frame.
+            if (ImGui.IsWindowAppearing() || variantEmote != id)
+            {
+                wirkend = ModVariants.Effective(m);
+                variantEmote = id;
+            }
+
+            DrawVarianten(m, varianten);
+
+            if (ModVariants.HasChoice(id)
+                && ImGui.Selectable(Loc.T("Back to Penumbra setting", "Zurück zur Penumbra-Einstellung")))
+            {
+                ModVariants.Reset(m);
+                variantEmote = 0;
+            }
         }
 
         ImGui.EndPopup();
     }
 
-    /// <summary>Wechselt in den Reiter des Eintrags und zeigt dort nur diesen Mod.</summary>
-    private void NurMod(EmoteKind art, string mod)
+    private uint variantEmote;
+    private Variant? wirkend;
+
+    private static string Bezeichnung(Variant v, bool alleine) =>
+        v.Option ?? (alleine ? v.Mod.Name : Loc.T("Default", "Standard"));
+
+    /// <summary>
+    /// Die Varianten nach Mod gruppiert: der Mod-Name als Ueberschrift, darunter die Optionen. Eine Mod, deren
+    /// Aenderung nur in den Standarddateien liegt, ist ein einzelner Eintrag. Bei vielen Eintraegen scrollt die Liste.
+    /// </summary>
+    private void DrawVarianten(ModdedEmote m, IReadOnlyList<VariantEntry> varianten)
     {
-        modFilter[art] = [mod];
-        tab = (int)art;
-        config.LastTab = tab;
-        save();
+        var gruppen = varianten.GroupBy(v => v.Variant.Mod).Select(g => g.ToList()).ToList();
+        var zeilen = 0;
+        var breite = 0f;
+
+        foreach (var g in gruppen)
+        {
+            var alleine = g.Count == 1 && !g[0].Variant.IsOption;
+            zeilen += alleine ? 1 : g.Count + 1;
+            breite = Math.Max(breite, ImGui.CalcTextSize(g[0].Variant.Mod.Name).X);
+            foreach (var v in g)
+                breite = Math.Max(breite, ImGui.CalcTextSize(Bezeichnung(v.Variant, alleine)).X + Widgets.S(16f));
+        }
+
+        var hoehe = Math.Min(zeilen * ImGui.GetTextLineHeightWithSpacing() + Widgets.S(4f), Widgets.S(320f));
+        var scroll = zeilen * ImGui.GetTextLineHeightWithSpacing() > Widgets.S(320f) ? Widgets.S(18f) : 0f;
+
+        if (!ImGui.BeginChild("##varianten", new Vector2(breite + Widgets.S(40f) + scroll, hoehe)))
+        {
+            ImGui.EndChild();
+            return;
+        }
+
+        foreach (var g in gruppen)
+        {
+            var alleine = g.Count == 1 && !g[0].Variant.IsOption;
+
+            if (!alleine)
+                ImGui.TextColored(Theme.AccentLight, g[0].Variant.Mod.Name);
+
+            foreach (var eintrag in g)
+            {
+                var v = eintrag.Variant;
+                var schluessel = $"{v.Mod.Directory}/{v.Group}/{v.Option}";
+
+                if (!alleine)
+                    ImGui.Indent(Widgets.S(8f));
+
+                if (ImGui.MenuItem($"{Bezeichnung(v, alleine)}##{schluessel}", string.Empty, v == wirkend, true))
+                {
+                    ModVariants.Choose(m, v);
+                    variantEmote = 0;
+                }
+
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(VariantenHinweis(v, m.Emote.Name));
+
+                if (!alleine)
+                    ImGui.Unindent(Widgets.S(8f));
+            }
+        }
+
+        ImGui.EndChild();
+    }
+
+    private static string VariantenHinweis(Variant variant, string emote)
+    {
+        const int Grenze = 8;
+
+        var andere = ModdedEmotes.Index.EmotesOf(variant)
+            .Where(e => !string.Equals(e, emote, StringComparison.CurrentCultureIgnoreCase))
+            .ToList();
+
+        var text = variant.Group is null ? string.Empty : $"{Loc.T("Group", "Gruppe")}: {variant.Group}\n";
+
+        if (andere.Count == 0)
+            return text + Loc.T("Changes no other emote.", "Ändert kein weiteres Emote.");
+
+        var liste = string.Join(", ", andere.Take(Grenze));
+        if (andere.Count > Grenze)
+            liste += Loc.T($" and {andere.Count - Grenze} more", $" und {andere.Count - Grenze} weitere");
+
+        return text + Loc.T($"Also changes: {liste}", $"Ändert auch: {liste}");
     }
 
     /// <summary>
@@ -538,6 +636,22 @@ public sealed partial class MainWindow
             farbe);
     }
 
+    /// <summary>
+    /// Anzahl der Mods eines Emotes, unten links im Icon: Herz (oben rechts) und Schloss (unten rechts)
+    /// besetzen die anderen Ecken. Nur gezeichnet.
+    /// </summary>
+    private static void DrawBadge(ImDrawListPtr liste, Vector2 ecke, Vector2 max, int anzahl, float a = 1f)
+    {
+        var text = anzahl.ToString();
+        var groesse = ImGui.CalcTextSize(text);
+        var abstand = Widgets.S(2f);
+        var min = new Vector2(ecke.X + abstand, max.Y - abstand - groesse.Y - abstand * 2f);
+        var flaeche = min + new Vector2(Math.Max(groesse.X, groesse.Y) + abstand * 2f, groesse.Y + abstand * 2f);
+
+        liste.AddRectFilled(min, flaeche, Abdunkeln(Theme.Accent, a), 4f);
+        liste.AddText(min + new Vector2((flaeche.X - min.X - groesse.X) / 2f, abstand), Abdunkeln(Theme.OnAccent, a), text);
+    }
+
     private static void DrawSchloss(ImDrawListPtr liste, Vector2 max, float a = 1f)
     {
         var text = FontAwesomeIcon.Lock.ToIconString();
@@ -567,10 +681,16 @@ public sealed partial class MainWindow
         ImGui.TextUnformatted(m.Emote.Name);
         ImGui.TextColored(Theme.Muted, m.Emote.TextCommand);
 
-        if (m.IsModded)
-            ImGui.TextColored(Theme.Muted, $"{Loc.T("Mods", "Mods")}: {string.Join(", ", m.Mods)}");
-        else
+        if (!m.IsModded)
             ImGui.TextColored(Theme.Muted, Loc.T("Not modded", "Nicht gemoddet"));
+        else
+        {
+            ImGui.TextColored(Theme.Muted, $"{Loc.T("Mods", "Mods")}: {string.Join(", ", m.Mods)}");
+
+            if (m.NoneActive)
+                ImGui.TextColored(Theme.Muted,
+                    Loc.T("No mod active - right-click to choose a variant", "Keine Mod aktiv – Rechtsklick wählt eine Variante"));
+        }
 
         ImGui.TextColored(Theme.Muted, zustand);
 

@@ -5,6 +5,15 @@ public static class EnMotionChangelog
 {
     public static readonly IReadOnlyList<ChangelogEntry> Entries =
     [
+        new("0.2.5.0", "2026-10-28",
+        [
+            new("Choose a variant per emote: right-click a tile and pick one under Variant. For collection mods such as Eorzean Nightlife the variants are the single options of the mod, grouped by mod; other mods count as one entry. The choice is temporary and does not change your Penumbra settings; other players see it through Lightless. \"Back to Penumbra setting\" undoes it, and closing EnMotion removes every choice.",
+                "Wähle die Variante je Emote: Rechtsklick auf eine Kachel, dann unter Variante eine auswählen. Bei Sammel-Mods wie Eorzean Nightlife sind die Varianten die einzelnen Optionen der Mod, nach Mod gruppiert; andere Mods sind ein Eintrag. Die Wahl ist vorübergehend und ändert deine Penumbra-Einstellungen nicht; andere Spieler sehen sie über Lightless. „Zurück zur Penumbra-Einstellung“ nimmt sie zurück, und beim Beenden von EnMotion verschwinden alle Wahlen."),
+            new("Emotes whose mods are all turned off now appear in the list, with a muted frame. A small badge shows how many variants an emote has.",
+                "Emotes, deren Mods alle abgeschaltet sind, erscheinen jetzt in der Liste, mit gedämpftem Rahmen. Ein kleines Badge zeigt, wie viele Varianten ein Emote hat."),
+            new("\"Only show <mod>\" is gone from the right-click menu; the Mods filter above the list does the same.",
+                "„Nur <Mod> zeigen“ entfällt im Rechtsklick-Menü; der Mod-Filter über der Liste leistet dasselbe."),
+        ]),
         new("0.2.4.0", "2026-10-28",
         [
             new("Favourite poses now sit in their own row below the favourite tiles.",

@@ -160,6 +160,139 @@ public static class PenumbraBridge
         }
     }
 
+    // Vorlaeufige Mod-Einstellungen (Penumbra.Api, IpcSubscribers/Temporary.cs und ModSettings.cs).
+    // Rueckgabewerte sind PenumbraApiEc als int; Failed steht fuer eine Ausnahme beim Aufruf (Grund in LastError).
+    private const string SetTemporaryModSettingsPlayerLabel = "Penumbra.SetTemporaryModSettingsPlayer.V5";
+    private const string RemoveTemporaryModSettingsPlayerLabel = "Penumbra.RemoveTemporaryModSettingsPlayer.V5";
+    private const string RemoveAllTemporaryModSettingsPlayerLabel = "Penumbra.RemoveAllTemporaryModSettingsPlayer.V5";
+    private const string GetCurrentModSettingsWithTempLabel = "Penumbra.GetCurrentModSettingsWithTemp";
+
+    /// <summary>
+    /// Schluessel, unter dem EnMotion vorlaeufige Einstellungen setzt. Negativ heisst: reine Kennung, die
+    /// Penumbra-Oberflaeche sperrt die Einstellung nicht, und RemoveAll entfernt nur die mit dieser Kennung.
+    /// Die Zahl sind die ASCII-Codes von "EMOT", negiert.
+    /// </summary>
+    public const int TemporaryKey = -0x454D4F54;
+
+    public const string TemporarySource = "EnMotion";
+
+    public const int Failed = -1;
+
+    /// <summary>Die Sammlung, die fuer den eigenen Charakter wirkt, oder null.</summary>
+    public static Guid? GetOwnCollection()
+    {
+        try
+        {
+            var (valid, _, effective) = Api
+                .GetIpcSubscriber<int, (bool, bool, (Guid Id, string Name))>(GetCollectionForObjectLabel)
+                .InvokeFunc(0);
+
+            if (valid)
+                return effective.Id;
+
+            lastError = new LocText("no character loaded", "kein Charakter geladen");
+            return null;
+        }
+        catch (Exception e)
+        {
+            Fail(e);
+            return null;
+        }
+    }
+
+    /// <summary>Der Penumbra-Stammordner der Mods (Penumbra.Api, IpcSubscribers/PluginState.cs, GetModDirectory: () -> string) oder null.</summary>
+    public static string? GetModRoot()
+    {
+        try
+        {
+            return Api.GetIpcSubscriber<string>("Penumbra.GetModDirectory").InvokeFunc();
+        }
+        catch (Exception e)
+        {
+            Fail(e);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Einstellung einer Mod in einer Sammlung, mit vorlaeufigen Einstellungen, ausser bei
+    /// <paramref name="ignoreTemporary"/>. Options sind die gewaehlten Optionen je Gruppe; bei Code ungleich 0
+    /// sind die uebrigen Werte leer.
+    /// </summary>
+    public static (int Code, bool Enabled, int Priority, IReadOnlyDictionary<string, IReadOnlyList<string>> Options)
+        GetModSetting(Guid collection, string modDirectory, string modName, bool ignoreTemporary = false)
+    {
+        try
+        {
+            var (code, settings) = Api
+                .GetIpcSubscriber<Guid, string, string, bool, bool, int,
+                    (int, (bool, int, Dictionary<string, List<string>>, bool, bool)?)>(GetCurrentModSettingsWithTempLabel)
+                .InvokeFunc(collection, modDirectory, modName, false, ignoreTemporary, 0);
+
+            if (code != 0 || settings is not { } s)
+                return (code != 0 ? code : Failed, false, 0, new Dictionary<string, IReadOnlyList<string>>());
+
+            var options = s.Item3.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value);
+            return (0, s.Item1, s.Item2, options);
+        }
+        catch (Exception e)
+        {
+            Fail(e);
+            return (Failed, false, 0, new Dictionary<string, IReadOnlyList<string>>());
+        }
+    }
+
+    /// <summary>Setzt fuer den eigenen Charakter vorlaeufig: Mod eingeschaltet, nicht geerbt, gegebene Optionen und Prioritaet.</summary>
+    public static int SetTemporary(string modDirectory, string modName, int priority,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> options)
+    {
+        try
+        {
+            return Api
+                .GetIpcSubscriber<int, string, string,
+                    (bool, bool, int, IReadOnlyDictionary<string, IReadOnlyList<string>>), string, int, int>(
+                    SetTemporaryModSettingsPlayerLabel)
+                .InvokeFunc(0, modDirectory, modName, (false, true, priority, options), TemporarySource, TemporaryKey);
+        }
+        catch (Exception e)
+        {
+            Fail(e);
+            return Failed;
+        }
+    }
+
+    /// <summary>Entfernt die vorlaeufige Einstellung einer Mod fuer den eigenen Charakter.</summary>
+    public static int RemoveTemporary(string modDirectory, string modName)
+    {
+        try
+        {
+            return Api
+                .GetIpcSubscriber<int, string, string, int, int>(RemoveTemporaryModSettingsPlayerLabel)
+                .InvokeFunc(0, modDirectory, modName, TemporaryKey);
+        }
+        catch (Exception e)
+        {
+            Fail(e);
+            return Failed;
+        }
+    }
+
+    /// <summary>Entfernt alle vorlaeufigen Einstellungen mit dem Schluessel von EnMotion.</summary>
+    public static int RemoveAllTemporary()
+    {
+        try
+        {
+            return Api
+                .GetIpcSubscriber<int, int, int>(RemoveAllTemporaryModSettingsPlayerLabel)
+                .InvokeFunc(0, TemporaryKey);
+        }
+        catch (Exception e)
+        {
+            Fail(e);
+            return Failed;
+        }
+    }
+
     /// <summary>Alle bekannten Mods als Verzeichnis-zu-Name.</summary>
     public static Dictionary<string, string> GetMods()
     {

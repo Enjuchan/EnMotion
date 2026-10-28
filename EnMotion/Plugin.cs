@@ -149,6 +149,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi -= Oeffnen;
         Framework.Update -= Puls;
         PenumbraBridge.Unsubscribe();
+        ModVariants.ResetAll();
 
         Speichern();
         ECommons.ECommonsMain.Dispose();
